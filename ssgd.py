@@ -56,7 +56,7 @@ import sklearn.metrics
 from typing import Tuple
 
 
-NUM_FEATURES = 10  # CHANGE ME
+NUM_FEATURES = 2
 
 
 def main() -> None:
@@ -68,17 +68,7 @@ def main() -> None:
         eta0=arguments['<eta0>'],
         damp=arguments['<damp>'],
         num_per_block=arguments['<num>'])
-    output(model, arguments['<test>'])
-
-
-def output(model: np.ndarray, test_path: str) -> None:
-    """Output the test results.
-
-    Args:
-        model: The trained model
-        test_path: Path to the test file (.csv)
-    """
-    X_test, y_test = load_test_dataset(test_path)
+    X_test, y_test = load_test_dataset(arguments['<test>'])
     y_hat = model.dot(X_test)
     print('Accuracy:', sklearn.metrics.accuracy_score(y_test, y_hat))
 
