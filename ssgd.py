@@ -3,9 +3,10 @@
 Shuffling Mechanism
 ---
 
-The shuffling mechanism is linear w.r.t. the number of samples, taking linear
-extra space. This was programmed considering that sequential access to disk
-is relatively fast and that random accesses are slow.
+If n is the number of samples, where memory can hold at most k samples, then
+the shuffling mechanism takes O(n^2/k) time and O(n) space. This was programmed
+considering that sequential access to disk is relatively fast and that random
+accesses are slow.
 
 First, we consider the number of samples (n). Then, randomly shuffle a list of
 *indices*. Let us assume that memory can hold at most some finite number of
@@ -37,7 +38,8 @@ of values and the second is a single integer.
 
 
 Usage:
-    ssgd.py
+    ssgd.py [--epochs=<epochs>] [--eta0=<eta0>] [--damp=<damp>]
+    [--blocknum=<num>] [--train=<train>] [--test=<test>]
 
 Options:
     --epochs=<epochs>  Number of passes over the training data
@@ -63,13 +65,13 @@ def main() -> None:
     """Load data and launch training, then evaluate accuracy."""
     arguments = docopt.docopt(__doc__, version='ssgd 1.0')
     model = train(
-        train_path=arguments['<train>'],
-        epochs=arguments['<epochs>'],
-        eta0=arguments['<eta0>'],
-        damp=arguments['<damp>'],
-        num_per_block=arguments['<num>'])
-    X_test, y_test = load_test_dataset(arguments['<test>'])
-    y_hat = model.dot(X_test)
+        train_path=arguments['--train'],
+        epochs=int(arguments['--epochs']),
+        eta0=float(arguments['--eta0']),
+        damp=float(arguments['--damp']),
+        num_per_block=int(arguments['--blocknum']))
+    X_test, y_test = load_test_dataset(arguments['--test'])
+    y_hat = np.round(model.dot(X_test))
     print('Accuracy:', sklearn.metrics.accuracy_score(y_test, y_hat))
 
 
@@ -88,8 +90,8 @@ def load_test_dataset(test_path: str) -> Tuple[np.ndarray, np.ndarray]:
         for line in f.readlines():
             x, y = line.split(',')
             X_test.append(json.loads(x))
-            Y_test.append(y)
-    return np.array(X_test), np.array(Y_test)
+            Y_test.append([json.loads(y)])
+    return np.matrix(X_test), np.matrix(Y_test)
 
 
 def train(
@@ -115,7 +117,7 @@ def train(
     for p in range(epochs):
         n = permute_train_dataset(train_path, num_per_block)
         for t in range(n):
-            if t % num_per_block == 0:
+            if (t % num_per_block == 0) or (t % num_per_block) >= X.shape[0]:
                 X, Y = read_block(train_path, t // num_per_block, num_per_block)
             x, y = X[t % num_per_block], Y[t % num_per_block]
             w -= eta0*(damp**(p-1))*np.linalg.inv(x.T.dot(x)).dot(x.dot(y))
@@ -141,13 +143,15 @@ def permute_train_dataset(train_path: str, num_per_block: int) -> int:
         np.random.shuffle(indices)
 
     with open(train_path + '.tmp', 'w') as tmp:
-        for i in range(np.ceil(n / num_per_block)):
+        for i in range(int(np.ceil(n / num_per_block))):
             block_indices = set(indices[i*num_per_block:(i+1)*num_per_block])
             with open(train_path) as f:
+                next(f)
                 for i, line in enumerate(f.readlines()):
                     if i in block_indices:
+                        if not line.endswith('\n'):
+                            line += '\n'
                         tmp.write(line)
-
     return n
 
 
@@ -169,13 +173,12 @@ def read_block(train_path: str, block: int, num_per_block: int) \
     """
     X_train, Y_train = [], []
     with open(train_path + '.tmp') as f:
-        next(f)
         for i, line in enumerate(f.readlines()):
-            if block * num_per_block < i < (block + 1) * num_per_block:
+            if block * num_per_block <= i < (block + 1) * num_per_block:
                 x, y = line.split(',')
                 X_train.append(json.loads(x))
-                Y_train.append(y)
-    return np.array(X_train), np.array(Y_train)
+                Y_train.append([json.loads(y)])
+    return np.matrix(X_train), np.matrix(Y_train)
 
 
 if __name__ == '__main__':
