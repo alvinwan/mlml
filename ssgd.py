@@ -3,22 +3,13 @@
 Shuffling Mechanism
 ---
 
-If n is the number of samples, where memory can hold at most k samples, then
-the shuffling mechanism takes O(n^2/k) time and O(n) space. This was programmed
-considering that sequential access to disk is relatively fast and that random
-accesses are slow.
+We use an external sorting algorithm by first assigning random indices to
+each sample. Then, sort by indices, where the external merge algorithm takes
+O(nlogn) time.
 
-First, we consider the number of samples (n). Then, randomly shuffle a list of
-*indices*. Let us assume that memory can hold at most some finite number of
-samples (N). Take the first N indices from the shuffled list of indices, and
-then make one pass over all samples, using a buffer, to pick samples that are
-included in the set of N indices. The buffer ensures that we are not holding
-the entire file in memory. We now have N randomly-selected samples in memory.
-Write these N onto disk, and repeat for each chunk of N samples, for all n.
-With each write, we process another set of N indices from our n, finally
-resulting in a complete shuffling of all n samples.
-
-The function below implements this by reading from and writing to files.
+Take each block of N samples, and sort in-memory. Save each block to disk. For
+each of k blocks, buffer N/k samples. Then perform a (k-1)-way merge using k
+file buffers, where we load the next N/k samples any time a buffer empties.
 
 
 Reading Mechanism
@@ -29,12 +20,10 @@ disk. Again using a buffer, we simply read the next chunk of N samples that
 are needed for sgd to run another block.
 
 
-CSV File Format
+Binary File
 ---
 
-Each csv must contain the number of samples at the top of the file. Each line
-is then formatted with two comma-separated values, where the first is a list
-of values and the second is a single integer.
+By default, each entry in the binary file is assumed to be a
 
 
 Usage:
@@ -42,34 +31,37 @@ Usage:
     [--blocknum=<num>] [--train=<train>] [--test=<test>]
 
 Options:
-    --epochs=<epochs>  Number of passes over the training data
-    --eta0=<eta0>      The initial learning rate
-    --damp=<damp>      Amount to multiply learning rate by per epoch
-    --blocknum=<num>   Number of samples memory can hold, at maximum
-    --train=<train>    Path to train file. (.csv) [default: data/train.csv]
-    --test=<test>      Path to test file. (.csv) [default: data/test.csv]
+    --epochs=<epochs>   Number of passes over the training data
+    --eta0=<eta0>       The initial learning rate
+    --damp=<damp>       Amount to multiply learning rate by per epoch
+    --buffer=<num>      Size of memory in megabytes (MB)
+    --dtype=<dtype>     The numeric type of each sample [default: float32]
+    --d=<d>             Number of features
+    --n=<n>             Number of training samples
+    --train=<train>     Path to training data binary [default: data/train]
+    --test=<test>       Path to test data [default: data/test.mat]
 """
 
 import docopt
-import json
 import numpy as np
+import scipy
 import sklearn.metrics
 
 from typing import Tuple
-
-
-NUM_FEATURES = 2
 
 
 def main() -> None:
     """Load data and launch training, then evaluate accuracy."""
     arguments = docopt.docopt(__doc__, version='ssgd 1.0')
     model = train(
-        train_path=arguments['--train'],
+        damp=float(arguments['--damp']),
+        dtype=arguments['--dtype'],
         epochs=int(arguments['--epochs']),
         eta0=float(arguments['--eta0']),
-        damp=float(arguments['--damp']),
-        num_per_block=int(arguments['--blocknum']))
+        n=int(arguments['--n']),
+        num_features=int(arguments['--d']),
+        num_per_block=int((float(arguments['--buffer']) * (10**6)) // 4),
+        train_path=arguments['--train'])
     X_test, y_test = load_test_dataset(arguments['--test'])
     y_hat = np.round(model.dot(X_test))
     print('Accuracy:', sklearn.metrics.accuracy_score(y_test, y_hat))
@@ -79,52 +71,56 @@ def load_test_dataset(test_path: str) -> Tuple[np.ndarray, np.ndarray]:
     """Load and give test data in memory.
 
     Args:
-        test_path: Path to the test file (.csv)
+        test_path: Path to the test file (.mat)
 
     Returns:
         A tuple containing the test input, then the test output
     """
-    X_test, Y_test = [], []
-    with open(test_path) as f:
-        next(f)
-        for line in f.readlines():
-            x, y = line.split(',')
-            X_test.append(json.loads(x))
-            Y_test.append([json.loads(y)])
-    return np.matrix(X_test), np.matrix(Y_test)
+    data = scipy.io.loadmat(test_path)
+    return data['Xtest'], data['ytest']
 
 
 def train(
-        train_path: str,
+        damp: float,
+        dtype: str,
         epochs: int,
         eta0: float,
-        damp: float,
-        num_per_block: int) -> np.ndarray:
+        n: int,
+        num_features: int,
+        num_per_block: int,
+        train_path: str) -> np.ndarray:
     """Train using stochastic gradient descent.
 
     Args:
-        train_path: Path to the training file (.csv)
+        damp: Amount to multiply learning rate at each epoch
+        dtype: Data type of numbers in file
         epochs: Number of passes over training data
         eta0: Starting learning rate
-        damp: Amount to multiply learning rate at each epoch
-        num_per_block: Number of training samples to load into each block,
+        n: Number of training samples
+        num_features: Number of features
+        num_per_block: Number of training samples to load into each block
         limited by the size of the buffer and size of each sample
+        train_path: Path to the training file (.csv)
 
     Returns:
         The trained model
     """
-    w = np.eye(N=NUM_FEATURES)
+    w = np.eye(N=num_features)
     for p in range(epochs):
-        n = permute_train_dataset(train_path, num_per_block)
-        for t in range(n):
-            if (t % num_per_block == 0) or (t % num_per_block) >= X.shape[0]:
-                X, Y = read_block(train_path, t // num_per_block, num_per_block)
-            x, y = X[t % num_per_block], Y[t % num_per_block]
-            w -= eta0*(damp**(p-1))*np.linalg.inv(x.T.dot(x)).dot(x.dot(y))
+        permute_train_dataset(dtype, n, train_path, num_per_block)
+        blocks = BlockBuffer(dtype, num_per_block, train_path)
+        for X, Y in blocks:
+            for i in range(X.shape[0]):
+                x, y = X[i], Y[i]
+                w -= eta0*(damp**(p-1))*np.linalg.inv(x.T.dot(x)).dot(x.dot(y))
     return w
 
 
-def permute_train_dataset(train_path: str, num_per_block: int) -> int:
+def permute_train_dataset(
+        dtype: str,
+        n: int,
+        train_path: str,
+        num_per_block: int) -> int:
     """Permute the data, and save the shuffled data to a new file named .tmp.
 
     See the docstring at the top of this file for a description of the
@@ -132,53 +128,69 @@ def permute_train_dataset(train_path: str, num_per_block: int) -> int:
     by loading data from disk sequentially, wherever possible.
 
     Args:
-        train_path: Path to the train file (.csv)
+        dtype: Data type of samples in file
+        n: Number of training samples
+        num_per_block: Number of training samples to load into each block
+        train_path: Path to the train file (binary)
 
     Returns:
         The number of training examples
     """
-    with open(train_path) as f:
-        n = int(next(f))
-        indices = list(range(n))
-        np.random.shuffle(indices)
+    indices = list(range(n))
+    np.random.shuffle(indices)
 
-    with open(train_path + '.tmp', 'w') as tmp:
-        for i in range(int(np.ceil(n / num_per_block))):
-            block_indices = set(indices[i*num_per_block:(i+1)*num_per_block])
-            with open(train_path) as f:
-                next(f)
-                for i, line in enumerate(f.readlines()):
-                    if i in block_indices:
-                        if not line.endswith('\n'):
-                            line += '\n'
-                        tmp.write(line)
+    blocks = BlockBuffer(dtype, num_per_block, train_path)
+    for X, Y in blocks:
+        ...
     return n
 
 
-def read_block(train_path: str, block: int, num_per_block: int) \
-        -> Tuple[np.ndarray, np.ndarray]:
-    """Read block of data from shuffled data.
+class BlockBuffer:
+    """File buffer that buffers blocks of data at once."""
 
-    Note that even though the entire I/O buffer is run through, only data
-    from the current block is saved in memory and returned to the main sgd
-    loop for training.
+    def __init__(self, dtype: str, num_per_block: int, path: str):
+        """Initialize file handler but do not buffer data.
 
-    Args:
-        train_path: Path to the training file (.csv)
-        block: Index of the block of data to read into memory
-        num_per_block: Number of data points per block (to load into memory)
+        Args:
+            dtype: Data type of numbers in file
+            num_per_block: Number of samples per block
+            path: Path to the file to buffer
+        """
+        self.block = 0
+        self.handler = np.memmap(path, dtype=dtype, mode='r')
+        self.num_per_block = num_per_block
 
-    Returns:
-        A tuple containing training inputs and outputs
-    """
-    X_train, Y_train = [], []
-    with open(train_path + '.tmp') as f:
-        for i, line in enumerate(f.readlines()):
-            if block * num_per_block <= i < (block + 1) * num_per_block:
-                x, y = line.split(',')
-                X_train.append(json.loads(x))
-                Y_train.append([json.loads(y)])
-    return np.matrix(X_train), np.matrix(Y_train)
+    def __next__(self) -> np.ndarray:
+        """Buffer and return the next block of data.
+
+        Returns:
+            The next buffered block of data, as a numpy matrix
+        """
+        block = self.read_block(self.block)
+        self.block += 1
+        if len(block) == 0:
+            raise StopIteration
+        return block
+
+    def read_block(self, block: int) -> Tuple[np.ndarray, np.ndarray]:
+        """Read block of data from shuffled data.
+
+        Note that even though the entire I/O buffer is run through, only data
+        from the current block is saved in memory and returned to the main sgd
+        loop for training.
+
+        Args:
+            block: Index of the block of data to read into memory
+
+        Returns:
+            A tuple containing training inputs and outputs
+        """
+        raw = self.handler[block * self.num_per_block:
+                           (block + 1) * self.num_per_block]
+        return raw[:, :-1], raw[:, -1]
+
+    def __iter__(self):
+        return self
 
 
 if __name__ == '__main__':
