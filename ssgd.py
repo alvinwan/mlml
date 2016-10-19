@@ -31,13 +31,14 @@ Usage:
     [--blocknum=<num>] [--train=<train>] [--test=<test>]
 
 Options:
+    --buffer=<num>      Size of memory in megabytes (MB)
+    --d=<d>             Number of features
+    --damp=<damp>       Amount to multiply learning rate by per epoch
+    --dtype=<dtype>     The numeric type of each sample [default: float32]
     --epochs=<epochs>   Number of passes over the training data
     --eta0=<eta0>       The initial learning rate
-    --damp=<damp>       Amount to multiply learning rate by per epoch
-    --buffer=<num>      Size of memory in megabytes (MB)
-    --dtype=<dtype>     The numeric type of each sample [default: float32]
-    --d=<d>             Number of features
     --n=<n>             Number of training samples
+    --reg=<reg>         Regularization constant
     --train=<train>     Path to training data binary [default: data/train]
     --test=<test>       Path to test data [default: data/test.mat]
 """
@@ -47,6 +48,9 @@ import numpy as np
 import scipy
 import sklearn.metrics
 
+from blocks import BlockBuffer
+from blocks import BlockScope
+from blocks import BlockWriter
 from typing import Tuple
 
 
@@ -61,6 +65,7 @@ def main() -> None:
         n=int(arguments['--n']),
         num_features=int(arguments['--d']),
         num_per_block=int((float(arguments['--buffer']) * (10**6)) // 4),
+        reg=float(arguments['--reg']),
         train_path=arguments['--train'])
     X_test, y_test = load_test_dataset(arguments['--test'])
     y_hat = np.round(model.dot(X_test))
@@ -80,6 +85,19 @@ def load_test_dataset(test_path: str) -> Tuple[np.ndarray, np.ndarray]:
     return data['Xtest'], data['ytest']
 
 
+def block_to_x_y(block: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Converts a block of data into X and Y.
+
+    Args:
+        block: The block of data to extract X and Y from
+
+    Returns:
+        X: the data inputs
+        Y: the data outputs
+    """
+    return block[:, :-1], block[:, -1]
+
+
 def train(
         damp: float,
         dtype: str,
@@ -88,6 +106,7 @@ def train(
         n: int,
         num_features: int,
         num_per_block: int,
+        reg: float,
         train_path: str) -> np.ndarray:
     """Train using stochastic gradient descent.
 
@@ -100,97 +119,67 @@ def train(
         num_features: Number of features
         num_per_block: Number of training samples to load into each block
         limited by the size of the buffer and size of each sample
+        reg: The regularization constant
         train_path: Path to the training file (.csv)
 
     Returns:
         The trained model
     """
-    w = np.eye(N=num_features)
+    w, I = np.eye(N=num_features), np.identity(num_features)
     for p in range(epochs):
-        permute_train_dataset(dtype, n, train_path, num_per_block)
+        permute_train_dataset(dtype, n, num_per_block, train_path)
         blocks = BlockBuffer(dtype, num_per_block, train_path)
-        for X, Y in blocks:
+        for X, Y in map(block_to_x_y, blocks):
             for i in range(X.shape[0]):
                 x, y = X[i], Y[i]
-                w -= eta0*(damp**(p-1))*np.linalg.inv(x.T.dot(x)).dot(x.dot(y))
+                grad = np.linalg.inv(x.T.dot(x) + reg*I).dot(x.dot(y))
+                w -= eta0*(damp**(p-1))*grad
     return w
 
 
 def permute_train_dataset(
         dtype: str,
         n: int,
-        train_path: str,
-        num_per_block: int) -> int:
+        num_per_block: int,
+        train_path: str):
     """Permute the data, and save the shuffled data to a new file named .tmp.
 
     See the docstring at the top of this file for a description of the
     shuffling mechanism used here, which takes advantage of spatial locality
     by loading data from disk sequentially, wherever possible.
 
+    *Note* May cause issues if num_per_block is not evenly divided by the
+    number of buffers. This means some entry in the block will be left empty.
+
     Args:
         dtype: Data type of samples in file
-        n: Number of training samples
+        n: Number of total samples
         num_per_block: Number of training samples to load into each block
         train_path: Path to the train file (binary)
-
-    Returns:
-        The number of training examples
     """
-    indices = list(range(n))
-    np.random.shuffle(indices)
+    num_buffers = n / num_per_block
+    with BlockScope('float64', 'samplesort', num_per_block) as scope:
+        writer = BlockWriter(dtype, num_per_block, train_path)
+        blocks = BlockBuffer(dtype, num_per_block, train_path)
+        buffers = []
 
-    blocks = BlockBuffer(dtype, num_per_block, train_path)
-    for X, Y in blocks:
-        ...
-    return n
+        for i, block in enumerate(blocks):
+            scope.write_block(i, np.random.shuffle(block))
+            buffer = scope.get_block_buffer(i)
+            buffer.num_per_block = num_per_block // num_buffers
+            buffers.append(buffer)
 
-
-class BlockBuffer:
-    """File buffer that buffers blocks of data at once."""
-
-    def __init__(self, dtype: str, num_per_block: int, path: str):
-        """Initialize file handler but do not buffer data.
-
-        Args:
-            dtype: Data type of numbers in file
-            num_per_block: Number of samples per block
-            path: Path to the file to buffer
-        """
-        self.block = 0
-        self.handler = np.memmap(path, dtype=dtype, mode='r')
-        self.num_per_block = num_per_block
-
-    def __next__(self) -> np.ndarray:
-        """Buffer and return the next block of data.
-
-        Returns:
-            The next buffered block of data, as a numpy matrix
-        """
-        block = self.read_block(self.block)
-        self.block += 1
-        if len(block) == 0:
-            raise StopIteration
-        return block
-
-    def read_block(self, block: int) -> Tuple[np.ndarray, np.ndarray]:
-        """Read block of data from shuffled data.
-
-        Note that even though the entire I/O buffer is run through, only data
-        from the current block is saved in memory and returned to the main sgd
-        loop for training.
-
-        Args:
-            block: Index of the block of data to read into memory
-
-        Returns:
-            A tuple containing training inputs and outputs
-        """
-        raw = self.handler[block * self.num_per_block:
-                           (block + 1) * self.num_per_block]
-        return raw[:, :-1], raw[:, -1]
-
-    def __iter__(self):
-        return self
+        while buffers:
+            current_block, remaining_buffers = [], []
+            for buffer in buffers:
+                block = buffer.read_block()
+                if len(block) > 0:
+                    current_block.extend(block)
+                    remaining_buffers.append(buffer)
+            current_block = np.matrix(current_block)
+            np.random.shuffle(current_block)
+            writer.write(current_block)
+            buffers = remaining_buffers
 
 
 if __name__ == '__main__':
