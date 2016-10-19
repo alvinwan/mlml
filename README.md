@@ -10,12 +10,9 @@ To use this repository, clone the repository.
     git clone https://github.com/alvinwan/ssgd.git
 
 Place data in your `data/` folder. Note that these files must be in
-CSV format. Each csv must contain the number of samples at the top of 
-the file. Each line is then formatted with two comma-separated values, 
-where the first is a list of values and the second is a single integer.
-
-The script will by default load from `data/train.csv` and
-`data/test.csv`.
+binary. Each file encodes a numpy matrix, where the last column of a
+matrix is the label. The script will by default load from `data/train`
+and `data/test`.
 
 > Note that this project is backwards-compatible, down to Python 2 but
 static-typing was introduced to comply with PEP 484, Python 3.5.

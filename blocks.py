@@ -1,4 +1,9 @@
-"""Utilities for loading and writing blocks of data to disk."""
+"""Utilities for loading and writing blocks of data to disk.
+
+These utilities are mostly used by the permutation algorithms, which perform
+the most complex maneuvers for I/O. SSGD itself also uses selective-read
+utilities from this module.
+"""
 
 import os
 import numpy as np
@@ -59,17 +64,21 @@ class BlockScope:
         handler[:] = data[:]
         del handler
 
-    def get_block_buffer(self, block_id: int) -> BlockBuffer:
+    def get_block_buffer(
+            self,
+            block_id: int,
+            num_per_block: int) -> BlockBuffer:
         """Reads a block of data from a temporary file in this scope.
 
         Args:
             block_id: Unique id for the block to read from
+            num_per_block: Number per block for new buffer to give
         """
         path = BlockScope.BLOCK_SCOPE_FILENAME_FORMAT.format(
             namespace=self.namespace,
             id=block_id)
         assert os.path.exists(path), 'File not found: %s' % path
-        return BlockBuffer(self.dtype, self.num_per_block, path)
+        return BlockBuffer(self.dtype, num_per_block, path)
 
 
 class BlockWriter:
