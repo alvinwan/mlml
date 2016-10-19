@@ -20,14 +20,12 @@ disk. Again using a buffer, we simply read the next chunk of N samples that
 are needed for sgd to run another block.
 
 
-Binary File
----
-
-By default, each entry in the binary file is assumed to be a
-
-
 Usage:
-    ssgd.py [--epochs=<epochs>] [--eta0=<eta0>] [--damp=<damp>]
+    ssgd.py closed --dtype=<dtype> --n=<n> --num_features=<num_features>
+                   --reg=<reg> --train=<train>
+    ssgd.py gd
+    ssgd.py sgd
+    ssgd.py ssgd [--epochs=<epochs>] [--eta0=<eta0>] [--damp=<damp>]
     [--blocknum=<num>] [--train=<train>] [--test=<test>]
 
 Options:
@@ -37,6 +35,7 @@ Options:
     --dtype=<dtype>     The numeric type of each sample [default: float32]
     --epochs=<epochs>   Number of passes over the training data
     --eta0=<eta0>       The initial learning rate
+    --iters=<iters>     The number of iterations, used for gd and sgd
     --n=<n>             Number of training samples
     --reg=<reg>         Regularization constant
     --train=<train>     Path to training data binary [default: data/train]
@@ -57,16 +56,58 @@ from typing import Tuple
 def main() -> None:
     """Load data and launch training, then evaluate accuracy."""
     arguments = docopt.docopt(__doc__, version='ssgd 1.0')
-    model = train(
-        damp=float(arguments['--damp']),
-        dtype=arguments['--dtype'],
-        epochs=int(arguments['--epochs']),
-        eta0=float(arguments['--eta0']),
-        n=int(arguments['--n']),
-        num_features=int(arguments['--d']),
-        num_per_block=int((float(arguments['--buffer']) * (10**6)) // 4),
-        reg=float(arguments['--reg']),
-        train_path=arguments['--train'])
+
+    damp = float(arguments['--damp'])
+    dtype = arguments['--dtype']
+    epochs = int(arguments['--epochs'])
+    eta0 = float(arguments['--eta0'])
+    iterations = int(arguments['--iters'])
+    n = int(arguments['--n'])
+    num_features = int(arguments['--d'])
+    num_per_block = int((float(arguments['--buffer']) * (10 ** 6)) // 4)
+    reg = float(arguments['--reg'])
+    train_path = arguments['--train']
+
+    if arguments['closed']:
+        model = train_closed(
+            dtype=dtype,
+            n=n,
+            num_features=num_features,
+            reg=reg,
+            train_path=train_path)
+    elif arguments['gd']:
+        model = train_gd(
+            damp=damp,
+            dtype=dtype,
+            eta0=eta0,
+            iterations=iterations,
+            n=n,
+            num_features=num_features,
+            reg=reg,
+            train_path=train_path)
+    elif arguments['sgd']:
+        model = train_sgd(
+            damp=damp,
+            dtype=dtype,
+            eta0=eta0,
+            iterations=iterations,
+            n=n,
+            num_features=num_features,
+            reg=reg,
+            train_path=train_path)
+    elif arguments['ssgd']:
+        model = train_ssgd(
+            damp=damp,
+            dtype=dtype,
+            epochs=epochs,
+            eta0=eta0,
+            n=n,
+            num_features=num_features,
+            num_per_block=num_per_block,
+            reg=reg,
+            train_path=train_path)
+    else:
+        raise UserWarning('Invalid algorithm specified.')
     X_test, y_test = load_test_dataset(arguments['--test'])
     y_hat = np.round(model.dot(X_test))
     print('Accuracy:', sklearn.metrics.accuracy_score(y_test, y_hat))
@@ -85,20 +126,79 @@ def load_test_dataset(test_path: str) -> Tuple[np.ndarray, np.ndarray]:
     return data['Xtest'], data['ytest']
 
 
-def block_to_x_y(block: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Converts a block of data into X and Y.
+def read_full_dataset(
+        dtype: str,
+        path: str,
+        shape: Tuple[int, int]) -> Tuple[np.ndarray, np.ndarray]:
+    """Read the dataset in its entirety."""
+    data = np.memmap(path, dtype=dtype, mode='r', shape=shape)
+    return block_to_x_y(data)
 
-    Args:
-        block: The block of data to extract X and Y from
+
+def train_closed(
+        dtype: str,
+        n: int,
+        num_features: int,
+        reg: float,
+        train_path: str) -> np.ndarray:
+    """Compute the closed form solution.
 
     Returns:
-        X: the data inputs
-        Y: the data outputs
+        The trained model
     """
-    return block[:, :-1], block[:, -1]
+    X, y = read_full_dataset(dtype, train_path, (n, num_features))
+    XTX, I, XTy = X.T.dot(X), np.identity(num_features), X.T.dot(y)
+    return np.linalg.solve(XTX + reg*I, XTy)
 
 
-def train(
+def train_gd(
+        damp: float,
+        dtype: str,
+        eta0: float,
+        iterations: int,
+        n: int,
+        num_features: int,
+        reg: float,
+        train_path: str) -> np.ndarray:
+    """Run gradient descent.
+
+    Returns:
+        The trained model
+    """
+    X, y = read_full_dataset(dtype, train_path, (n, num_features))
+    XTX, XTy, w = X.T.dot(X), X.T.dot(y), np.zeros((num_features, 1))
+    for i in range(iterations):
+        grad = XTX.dot(w) - XTy + 2*reg*w
+        alpha = eta0*damp**(i % 100)
+        w += alpha * grad
+    return w
+
+
+def train_sgd(
+        damp: float,
+        dtype: str,
+        eta0: float,
+        iterations: int,
+        n: int,
+        num_features: int,
+        reg: float,
+        train_path: str) -> np.ndarray:
+    """Train using stochastic gradient descent.
+
+    Returns:
+        The trained model
+    """
+    X, y = read_full_dataset(dtype, train_path, (n, num_features))
+    w = np.zeros((num_features, 1))
+    for i in range(iterations):
+        x, y = np.matrix(X[i]), np.asscalar(y[i])
+        grad = x.T.dot(x.dot(w) - y) + 2 * reg * w
+        alpha = eta0 * damp ** (i % 100)
+        w += alpha * grad
+    return w
+
+
+def train_ssgd(
         damp: float,
         dtype: str,
         epochs: int,
@@ -108,19 +208,7 @@ def train(
         num_per_block: int,
         reg: float,
         train_path: str) -> np.ndarray:
-    """Train using stochastic gradient descent.
-
-    Args:
-        damp: Amount to multiply learning rate at each epoch
-        dtype: Data type of numbers in file
-        epochs: Number of passes over training data
-        eta0: Starting learning rate
-        n: Number of training samples
-        num_features: Number of features
-        num_per_block: Number of training samples to load into each block
-        limited by the size of the buffer and size of each sample
-        reg: The regularization constant
-        train_path: Path to the training file (.csv)
+    """Train using streaming stochastic gradient descent.
 
     Returns:
         The trained model
@@ -135,6 +223,19 @@ def train(
                 grad = np.linalg.inv(x.T.dot(x) + reg*I).dot(x.dot(y))
                 w -= eta0*(damp**(p-1))*grad
     return w
+
+
+def block_to_x_y(block: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Converts a block of data into X and Y.
+
+    Args:
+        block: The block of data to extract X and Y from
+
+    Returns:
+        X: the data inputs
+        Y: the data outputs
+    """
+    return block[:, :-1], block[:, -1]
 
 
 def permute_train_dataset(
