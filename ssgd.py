@@ -13,7 +13,7 @@ Usage:
     ssgd.py gd --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
     ssgd.py sgd --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
     ssgd.py ssgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
-    ssgd.py (closed|gd|sgd|ssgd) (mnist|spam)
+    ssgd.py (closed|gd|sgd|ssgd) (mnist|spam) [options]
 
 Options:
     --algo=<algo>       Shuffling algorithm to use [default: external_shuffle]
@@ -27,7 +27,7 @@ Options:
     --n=<n>             Number of training samples
     --k=<k>             Number of classes [default: 10]
     --nt=<nt>           Number of testing samples
-    --one-hot=<onehot>  Whether or not to use one hot encoding
+    --one-hot=<onehot>  Whether or not to use one hot encoding [default: False]
     --reg=<reg>         Regularization constant [default: 0.1]
     --train=<train>     Path to training data binary [default: data/train]
     --test=<test>       Path to test data [default: data/test]
@@ -103,7 +103,7 @@ def main() -> None:
     if arguments['--one-hot']:
         y_hat = np.argmax(X_test.dot(model), axis=1)
     else:
-        y_hat = np.where(X_test.dot(model) > 0, 1, 0)
+        y_hat = np.where(X_test.dot(model) > 0.5, 1, 0)
     print('Accuracy:', sklearn.metrics.accuracy_score(y_test, y_hat))
 
 
@@ -121,7 +121,7 @@ def preprocess_arguments(arguments) -> dict:
         arguments['--nt'] = 10000
         arguments['--k'] = 10
         arguments['--d'] = 784
-        arguments['--one-hot'] = True
+        arguments['--one-hot'] = 'true'
     if arguments['spam']:
         arguments['--train'] = 'data/spam-float64-2760-train'
         arguments['--test'] = 'data/spam-float64-690-test'
@@ -129,6 +129,7 @@ def preprocess_arguments(arguments) -> dict:
         arguments['--nt'] = 690
         arguments['--k'] = 1
         arguments['--d'] = 55
+        arguments['--epochs'] = 20
 
     arguments['--damp'] = float(arguments['--damp'])
     arguments['--epochs'] = int(arguments['--epochs'])
@@ -140,6 +141,7 @@ def preprocess_arguments(arguments) -> dict:
     arguments['--num-per-block'] = min(
         int((float(arguments['--buffer']) * (10 ** 6)) // 4),
         arguments['--n'])
+    arguments['--one-hot'] = arguments['--one-hot'].lower() == 'true'
     arguments['--reg'] = float(arguments['--reg'])
     return arguments
 
@@ -261,7 +263,7 @@ def train_sgd(
         for index in indices:
             x, y = np.matrix(X[index]), np.matrix(Y[index])
             grad = x.T.dot(x.dot(w) - y) + 2 * reg * w
-            alpha = eta0 * damp ** (i % 100)
+            alpha = eta0 * damp ** ((n * i + index) % 1000)
             w -= alpha * grad
     return w
 
@@ -305,17 +307,19 @@ def train_ssgd(
     Returns:
         The trained model
     """
+    shape = (num_per_block, num_features + 1)
     w, I = np.zeros((num_features, num_classes)), np.identity(num_features)
-    shuffle_train(algorithm, dtype, n, num_per_block, num_features, train_path)
     for p in range(epochs):
-        shape = (num_per_block, num_features + 1)
+        shuffle_train(algorithm, dtype, n, num_per_block, num_features,
+                      train_path)
         blocks = BlockBuffer(dtype, num_per_block, train_path, shape)
         deblockify = lambda block: block_to_x_y(block, num_classes, one_hot)
         for X, Y in map(deblockify, blocks):
             for i in range(X.shape[0]):
                 x, y = np.matrix(X[i]), np.matrix(Y[i]).T
                 grad = x.T.dot(x.dot(w) - y) + 2 * reg * w
-                w -= eta0*(damp**(p-1))*grad
+                alpha = eta0 * damp ** ((n * p + i) % 1000)
+                w -= alpha * grad
     return w
 
 
@@ -336,7 +340,7 @@ def block_to_x_y(
     """
     X, y = block[:, :-1], np.matrix(block[:, -1].astype(int, copy=False)).T
     if one_hot:
-        y = np.eye(num_classes)[y]
+        y = np.eye(num_classes)[y].reshape((X.shape[0], num_classes))
     return X, y
 
 
