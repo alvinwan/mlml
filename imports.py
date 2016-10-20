@@ -3,9 +3,20 @@
 This module provides several utilities for saving numpy matrices to
 
 
+Usage:
+    imports.py mnist
+    imports.py spam [options]
+
+Options:
+    --percentage=<percentage>   Percentage of data for training [default: 0.8]
 """
 
+import docopt
 import numpy as np
+import scipy.io
+
+from mnist import MNIST
+from typing import Tuple
 
 TRAIN_FILEPATH_FORMAT = 'data/{namespace}-{dtype}-{n}-train'
 TEST_FILEPATH_FORMAT = 'data/{namespace}-{dtype}-{n}-test'
@@ -30,8 +41,8 @@ def save_inputs_labels_as_data(
         labels_test: Labels for testing data, single column for labels
         dtype: Type of data in matrix
     """
-    train = np.concatenate((X_train, labels_train))
-    test = np.concatenate((X_test, labels_test))
+    train = np.concatenate((X_train, labels_train), axis=1)
+    test = np.concatenate((X_test, labels_test), axis=1)
     save_inputs_as_data(namespace, train, test, dtype)
 
 
@@ -54,7 +65,7 @@ def save_inputs_as_data(
         namespace=namespace,
         dtype=dtype,
         n=train.shape[0])
-    train_fh = np.memmap(train_path, dtype=dtype, mode='w', shape=train.shape)
+    train_fh = np.memmap(train_path, dtype=dtype, mode='w+', shape=train.shape)
     train_fh[:] = train[:]
     del train_fh
 
@@ -62,6 +73,66 @@ def save_inputs_as_data(
         namespace=namespace,
         dtype=dtype,
         n=test.shape[0])
-    test_fh = np.memmap(test_path, dtype=dtype, mode='w', shape=test.shape)
+    test_fh = np.memmap(test_path, dtype=dtype, mode='w+', shape=test.shape)
     test_fh[:] = test[:]
     del test_fh
+
+
+def import_mnist():
+    """Imports MNIST files held in ./data/ folder.
+
+    Converts all data to binary values and stores in a binary file under the
+    data directory.
+    """
+    mndata = MNIST('./data/')
+    X_train, labels_train = map(np.array, mndata.load_training())
+    X_test, labels_test = map(np.array, mndata.load_testing())
+    X_train = X_train / 255.0
+    X_test = X_test / 255.0
+    save_inputs_labels_as_data('mnist', X_train, labels_train, X_test,
+                               labels_test)
+
+
+def import_spam(training_data_percentage: float=0.8):
+    """Imports spam files held in ./data/ folder.
+
+    Converts all data to binary values and stores in a binary file under the
+    data directory.
+
+    Args:
+        training_data_percentage: Percentage of training data to keep for
+                                  training - remainder used for validation
+                                  (float between 0 and 1)
+    """
+    data = scipy.io.loadmat('data/spam.mat')
+    X, y = shuffle(data['Xtrain'], data['ytrain'])
+    N = int(np.ceil(X.shape[0] * training_data_percentage))
+    X_train, X_test = X[:N], X[N:]
+    labels_train, labels_test = y[:N], y[N:]
+    save_inputs_labels_as_data('spam', X_train, labels_train, X_test,
+                               labels_test)
+
+
+def shuffle(X: np.ndarray, Y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Shuffle all X and Y data, in tandem with one another.
+
+    Args:
+        X: input data
+        Y: output data, or labels
+    """
+    indices = list(range(X.shape[0]))
+    np.random.shuffle(indices)
+    return X[indices], Y[indices]
+
+
+def main():
+    """Run the command-line interface."""
+    arguments = docopt.docopt(__doc__, version='SSGD 1.0')
+    if arguments['mnist']:
+        import_mnist()
+    elif arguments['spam']:
+        import_spam(float(arguments['--percentage']))
+
+
+if __name__ == '__main__':
+    main()
