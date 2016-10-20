@@ -13,10 +13,10 @@ Usage:
     ssgd.py gd --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
     ssgd.py sgd --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
     ssgd.py ssgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
-    ssgd.py (closed|gd|sgd|ssgd) mnist
+    ssgd.py (closed|gd|sgd|ssgd) (mnist|spam)
 
 Options:
-    --algo=<algo>       Shuffling algorithm to use
+    --algo=<algo>       Shuffling algorithm to use [default: external_shuffle]
     --buffer=<num>      Size of memory in megabytes (MB) [default: 5]
     --d=<d>             Number of features
     --damp=<damp>       Amount to multiply learning rate by per epoch [default: 0.99]
@@ -100,7 +100,10 @@ def main() -> None:
         dtype=arguments['--dtype'],
         path=arguments['--test'],
         shape=(arguments['--nt'], arguments['--d']))
-    y_hat = np.argmax(X_test.dot(model), axis=1)
+    if arguments['--one-hot']:
+        y_hat = np.argmax(X_test.dot(model), axis=1)
+    else:
+        y_hat = np.where(X_test.dot(model) > 0, 1, 0)
     print('Accuracy:', sklearn.metrics.accuracy_score(y_test, y_hat))
 
 
@@ -112,13 +115,20 @@ def preprocess_arguments(arguments) -> dict:
     """
 
     if arguments['mnist']:
-        arguments['--train'] = 'mnist/mnist-float64-60000-train'
-        arguments['--test'] = 'mnist/mnist-float64-10000-test'
+        arguments['--train'] = 'data/mnist-float64-60000-train'
+        arguments['--test'] = 'data/mnist-float64-10000-test'
         arguments['--n'] = 60000
         arguments['--nt'] = 10000
         arguments['--k'] = 10
         arguments['--d'] = 784
         arguments['--one-hot'] = True
+    if arguments['spam']:
+        arguments['--train'] = 'data/spam-float64-2760-train'
+        arguments['--test'] = 'data/spam-float64-690-test'
+        arguments['--n'] = 2760
+        arguments['--nt'] = 690
+        arguments['--k'] = 1
+        arguments['--d'] = 55
 
     arguments['--damp'] = float(arguments['--damp'])
     arguments['--epochs'] = int(arguments['--epochs'])
@@ -127,8 +137,9 @@ def preprocess_arguments(arguments) -> dict:
     arguments['--n'] = int(arguments['--n'])
     arguments['--d'] = int(arguments['--d'])
     arguments['--k'] = int(arguments['--k'])
-    arguments['--num-per-block'] = int(
-        (float(arguments['--buffer']) * (10 ** 6)) // 4)
+    arguments['--num-per-block'] = min(
+        int((float(arguments['--buffer']) * (10 ** 6)) // 4),
+        arguments['--n'])
     arguments['--reg'] = float(arguments['--reg'])
     return arguments
 
@@ -294,14 +305,15 @@ def train_ssgd(
     Returns:
         The trained model
     """
-    w, I = np.eye(N=num_features), np.identity(num_features)
+    w, I = np.zeros((num_features, num_classes)), np.identity(num_features)
+    shuffle_train(algorithm, dtype, n, num_per_block, num_features, train_path)
     for p in range(epochs):
-        shuffle_train(algorithm, dtype, n, num_per_block, train_path)
-        blocks = BlockBuffer(dtype, num_per_block, train_path)
+        shape = (num_per_block, num_features + 1)
+        blocks = BlockBuffer(dtype, num_per_block, train_path, shape)
         deblockify = lambda block: block_to_x_y(block, num_classes, one_hot)
         for X, Y in map(deblockify, blocks):
             for i in range(X.shape[0]):
-                x, y = X[i], Y[i]
+                x, y = np.matrix(X[i]), np.matrix(Y[i]).T
                 grad = x.T.dot(x.dot(w) - y) + 2 * reg * w
                 w -= eta0*(damp**(p-1))*grad
     return w
@@ -322,9 +334,9 @@ def block_to_x_y(
         X: the data inputs
         Y: the data outputs
     """
-    X, y = block[:, :-1], block[:, -1]
+    X, y = block[:, :-1], np.matrix(block[:, -1].astype(int, copy=False)).T
     if one_hot:
-        y = np.eye(num_classes)[y.astype(int, copy=False)]
+        y = np.eye(num_classes)[y]
     return X, y
 
 

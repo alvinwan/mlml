@@ -29,7 +29,7 @@ Run `ssgd.py` at the root of the repository to begin using the utility.
         ssgd.py (closed|gd|sgd|ssgd) mnist
     
     Options:
-        --algo=<algo>       Shuffling algorithm to use
+        --algo=<algo>       Shuffling algorithm to use [default: external_shuffle]
         --buffer=<num>      Size of memory in megabytes (MB) [default: 5]
         --d=<d>             Number of features
         --damp=<damp>       Amount to multiply learning rate by per epoch [default: 0.99]

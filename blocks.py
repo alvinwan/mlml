@@ -8,6 +8,8 @@ utilities from this module.
 import os
 import numpy as np
 
+from typing import Tuple
+
 
 class BlockBuffer:
     """File buffer that buffers blocks of data at once.
@@ -22,17 +24,23 @@ class BlockBuffer:
     Note that the file is never completely stored in memory.
     """
 
-    def __init__(self, dtype: str, num_per_block: int, path: str):
+    def __init__(
+            self,
+            dtype: str,
+            num_per_block: int,
+            path: str,
+            shape: Tuple[int, int]):
         """Initialize file handler but do not buffer data.
 
         Args:
             dtype: Data type of numbers in file
             num_per_block: Number of samples per block
             path: Path to the file to buffer
+            shape: Shape of the object to read
         """
         self.block = 0
-        self.handler = np.memmap(path, dtype=dtype, mode='r')
-        self.num_per_block = num_per_block
+        self.handler = np.memmap(path, dtype=dtype, mode='r+', shape=shape)
+        self.num_per_block = int(num_per_block)
         self.path = path
 
     def __next__(self) -> np.ndarray:
@@ -82,7 +90,7 @@ class BlockScope:
     Once the scope has closed, all temporary files will be deleted.
     """
 
-    BLOCK_SCOPE_FILENAME_FORMAT = '{namespace}-{id}.tmp'
+    BLOCK_SCOPE_FILENAME_FORMAT = 'data/{namespace}-{id}.tmp'
 
     def __init__(self, dtype: str, namespace: str, num_per_block: int):
         """Initialize file handler but do not buffer data.
@@ -102,10 +110,11 @@ class BlockScope:
         """Initialize the set of temporary files."""
         return self
 
-    def __exit__(self):
+    def __exit__(self, *args):
         """Destroy the set of temporary files."""
         for path in self.paths:
-            os.remove(path)
+            if os.path.exists(path):
+                os.remove(path)
 
     def write_block(self, block_id: int, data: np.ndarray) -> None:
         """Writes a block of data to a temporary file in this scope.
@@ -118,25 +127,27 @@ class BlockScope:
             namespace=self.namespace,
             id=block_id)
         self.paths.append(path)
-        handler = np.memmap(path, dtype=self.dtype, mode='w+')
+        handler = np.memmap(path, dtype=self.dtype, mode='w+', shape=data.shape)
         handler[:] = data[:]
         del handler
 
     def get_block_buffer(
             self,
             block_id: int,
-            num_per_block: int) -> BlockBuffer:
+            num_per_block: int,
+            shape: Tuple[int, int]) -> BlockBuffer:
         """Reads a block of data from a temporary file in this scope.
 
         Args:
             block_id: Unique id for the block to read from
             num_per_block: Number per block for new buffer to give
+            shape: Shape of the object to read
         """
         path = BlockScope.BLOCK_SCOPE_FILENAME_FORMAT.format(
             namespace=self.namespace,
             id=block_id)
         assert os.path.exists(path), 'File not found: %s' % path
-        return BlockBuffer(self.dtype, num_per_block, path)
+        return BlockBuffer(self.dtype, num_per_block, path, shape)
 
 
 class BlockWriter:
@@ -151,7 +162,7 @@ class BlockWriter:
             path: Path to write to
         """
         assert os.path.exists(path), 'File not found: %s' % path
-        self.bytes_per_sample = int(dtype[:-2]) // 8
+        self.bytes_per_sample = int(dtype[-2:]) // 8
         self.dtype = dtype
         self.num_per_block = num_per_block
         self.offset = 0

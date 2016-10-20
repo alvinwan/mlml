@@ -66,7 +66,7 @@ def save_inputs_as_data(
         dtype=dtype,
         n=train.shape[0])
     train_fh = np.memmap(train_path, dtype=dtype, mode='w+', shape=train.shape)
-    train_fh[:] = train[:]
+    train_fh[:] = train.astype('float64')[:]
     del train_fh
 
     test_path = TEST_FILEPATH_FORMAT.format(
@@ -74,7 +74,7 @@ def save_inputs_as_data(
         dtype=dtype,
         n=test.shape[0])
     test_fh = np.memmap(test_path, dtype=dtype, mode='w+', shape=test.shape)
-    test_fh[:] = test[:]
+    test_fh[:] = test.astype('float64')[:]
     del test_fh
 
 
@@ -89,6 +89,8 @@ def import_mnist():
     X_test, labels_test = map(np.array, mndata.load_testing())
     X_train = X_train / 255.0
     X_test = X_test / 255.0
+    labels_train = np.matrix(labels_train).T
+    labels_test = np.matrix(labels_test).T
     save_inputs_labels_as_data('mnist', X_train, labels_train, X_test,
                                labels_test)
 

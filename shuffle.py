@@ -17,19 +17,21 @@ def shuffle_train(
         algorithm: str,
         dtype: str,
         n: int,
+        num_features: int,
         num_per_block: int,
         train_path: str) -> None:
     """Invoke the correct shuffling algorithm."""
     assert algorithm in ALGORITHMS, 'Invalid shuffling algorithm provided.'
     if algorithm == 'external_sort':
-        external_sort(dtype, n, num_per_block, train_path)
+        external_sort(dtype, n, num_per_block, num_features, train_path)
     else:
-        external_shuffle(dtype, n, num_per_block, train_path)
+        external_shuffle(dtype, n, num_per_block, num_features, train_path)
 
 
 def external_sort(
         dtype: str,
         n: int,
+        num_features: int,
         num_per_block: int,
         train_path: str) -> None:
     """Shuffle the file using external sort.
@@ -46,6 +48,7 @@ def external_sort(
     Args:
         dtype: Data type of samples in file
         n: Number of total samples
+        num_features: Number of features per sample
         num_per_block: Number of training samples to load into each block
         train_path: Path to the train file (binary)
     """
@@ -55,6 +58,7 @@ def external_sort(
 def external_shuffle(
         dtype: str,
         n: int,
+        num_features: int,
         num_per_block: int,
         train_path: str) -> None:
     """Shuffle the data, and save the shuffled data.
@@ -65,26 +69,36 @@ def external_shuffle(
     Args:
         dtype: Data type of samples in file
         n: Number of total samples
+        num_features: Number of features per sample
         num_per_block: Number of training samples to load into each block
         train_path: Path to the train file (binary)
     """
     num_buffers = n / num_per_block
     with BlockScope('float64', 'samplesort', num_per_block) as scope:
+        shape = (num_per_block, num_features + 1)
         writer = BlockWriter(dtype, num_per_block, train_path)
-        blocks = BlockBuffer(dtype, num_per_block, train_path)
+        blocks = BlockBuffer(dtype, num_per_block, train_path, shape)
         buffers = []
 
         for i, block in enumerate(blocks):
-            scope.write_block(i, np.random.shuffle(block))
-            buffer = scope.get_block_buffer(i, num_per_block // num_buffers)
+            np.random.shuffle(block)
+            scope.write_block(i, block)
+            buffer = scope.get_block_buffer(i, num_per_block // num_buffers, shape)
             buffers.append(buffer)
 
         while buffers:
-            current_block = np.matrix([])
+            current_block, remaining_buffers = None, []
             for i, buffer in enumerate(buffers[:]):
-                block = buffer.read_block()
-                current_block = np.concatenate((current_block, block))
-                if len(block) == 0:
-                    buffers.pop(i)
-            np.random.shuffle(current_block)
-            writer.write(current_block)
+                try:
+                    block = next(buffer)
+                except StopIteration:
+                    continue
+                remaining_buffers.append(buffer)
+                if current_block is None:
+                    current_block = block
+                else:
+                    current_block = np.concatenate((current_block, block))
+            buffers = remaining_buffers
+            if current_block is not None:
+                np.random.shuffle(current_block)
+                writer.write(current_block)
