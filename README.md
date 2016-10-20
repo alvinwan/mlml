@@ -22,12 +22,25 @@ static-typing was introduced to comply with PEP 484, Python 3.5.
 Run `ssgd.py` at the root of the repository to begin using the utility.
 
     Usage:
-        ssgd.py
-
+        ssgd.py closed --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
+        ssgd.py gd --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
+        ssgd.py sgd --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
+        ssgd.py ssgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
+        ssgd.py (closed|gd|sgd|ssgd) mnist
+    
     Options:
-        --epochs=<epochs>  Number of passes over the training data
-        --eta0=<eta0>      The initial learning rate
-        --damp=<damp>      Amount to multiply learning rate by per epoch
-        --blocknum=<num>   Number of samples memory can hold, at maximum
-        --train=<train>    Path to train file. (.csv) [default: data/train.csv]
-        --test=<test>      Path to test file. (.csv) [default: data/test.csv]
+        --algo=<algo>       Shuffling algorithm to use
+        --buffer=<num>      Size of memory in megabytes (MB) [default: 5]
+        --d=<d>             Number of features
+        --damp=<damp>       Amount to multiply learning rate by per epoch [default: 0.99]
+        --dtype=<dtype>     The numeric type of each sample [default: float64]
+        --epochs=<epochs>   Number of passes over the training data [default: 5]
+        --eta0=<eta0>       The initial learning rate [default: 1]
+        --iters=<iters>     The number of iterations, used for gd and sgd [default: 1000]
+        --n=<n>             Number of training samples
+        --k=<k>             Number of classes [default: 10]
+        --nt=<nt>           Number of testing samples
+        --one-hot=<onehot>  Whether or not to use one hot encoding
+        --reg=<reg>         Regularization constant [default: 0.1]
+        --train=<train>     Path to training data binary [default: data/train]
+        --test=<test>       Path to test data [default: data/test]
