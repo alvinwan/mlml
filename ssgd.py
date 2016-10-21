@@ -28,6 +28,7 @@ Options:
     --k=<k>             Number of classes [default: 10]
     --nt=<nt>           Number of testing samples
     --one-hot=<onehot>  Whether or not to use one hot encoding [default: False]
+    --nthreads=<nthr>   Number of threads [default: 1]
     --reg=<reg>         Regularization constant [default: 0.1]
     --train=<train>     Path to training data binary [default: data/train]
     --test=<test>       Path to test data [default: data/test]
@@ -38,9 +39,13 @@ import numpy as np
 import scipy
 import sklearn.metrics
 
-from blocks import BlockBuffer
-from shuffle import shuffle_train
+from utils.blocks import bytes_per_dtype
+from utils.blocks import BlockBuffer
+from utils.shuffle import shuffle_train
 from typing import Tuple
+
+
+LOG_FORMAT = '{algorithm}-{}'
 
 
 def main() -> None:
@@ -91,6 +96,7 @@ def main() -> None:
             num_classes=arguments['--k'],
             num_features=arguments['--d'],
             num_per_block=arguments['--num-per-block'],
+            num_threads=arguments['--nthreads'],
             one_hot=arguments['--one-hot'],
             reg=arguments['--reg'],
             train_path=arguments['--train'])
@@ -136,10 +142,12 @@ def preprocess_arguments(arguments) -> dict:
     arguments['--eta0'] = float(arguments['--eta0'])
     arguments['--iters'] = int(arguments['--iters'])
     arguments['--n'] = int(arguments['--n'])
+    arguments['--nthreads'] = int(arguments['--nthreads'])
     arguments['--d'] = int(arguments['--d'])
     arguments['--k'] = int(arguments['--k'])
-    arguments['--num-per-block'] = min(
-        int((float(arguments['--buffer']) * (10 ** 6)) // 4),
+    arguments['--num-per-block'] = min(int(
+        (float(arguments['--buffer']) * (10 ** 6)) //
+        ((arguments['--d'] + 1) * bytes_per_dtype(arguments['--dtype']))),
         arguments['--n'])
     arguments['--one-hot'] = arguments['--one-hot'].lower() == 'true'
     arguments['--reg'] = float(arguments['--reg'])
@@ -257,13 +265,13 @@ def train_sgd(
     shape = (n, num_features)
     X, Y = read_full_dataset(dtype, train_path, shape, num_classes, one_hot)
     w = np.zeros((num_features, num_classes))
-    for i in range(epochs):
+    for p in range(epochs):
         indices = list(range(X.shape[0]))
         np.random.shuffle(indices)
-        for index in indices:
-            x, y = np.matrix(X[index]), np.matrix(Y[index])
+        for i in indices:
+            x, y = np.matrix(X[i]), np.matrix(Y[i])
             grad = x.T.dot(x.dot(w) - y) + 2 * reg * w
-            alpha = eta0 * damp ** ((n * i + index) % 1000)
+            alpha = eta0 * damp ** ((n * p + i) % 1000)
             w -= alpha * grad
     return w
 
@@ -278,6 +286,7 @@ def train_ssgd(
         num_classes: int,
         num_features: int,
         num_per_block: int,
+        num_threads: int,
         one_hot: bool,
         reg: float,
         train_path: str) -> np.ndarray:

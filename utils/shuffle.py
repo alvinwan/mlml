@@ -6,9 +6,9 @@ by loading data from and writing data to disk sequentially, wherever possible.
 
 import numpy as np
 
-from blocks import BlockBuffer
-from blocks import BlockScope
-from blocks import BlockWriter
+from .blocks import BlockBuffer
+from .blocks import BlockScope
+from .blocks import BlockWriter
 
 ALGORITHMS = ('external_sort', 'external_shuffle')
 

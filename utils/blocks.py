@@ -11,6 +11,14 @@ import numpy as np
 from typing import Tuple
 
 
+def bytes_per_dtype(dtype: str) -> int:
+    """Compute number of bytes for this dtype."""
+    suffixes = (('8', 8), ('32', 32), ('64', 64), ('_', 64))
+    for suffix, size in suffixes:
+        if dtype.endswith(suffix):
+            return size
+
+
 class BlockBuffer:
     """File buffer that buffers blocks of data at once.
 
@@ -162,7 +170,7 @@ class BlockWriter:
             path: Path to write to
         """
         assert os.path.exists(path), 'File not found: %s' % path
-        self.bytes_per_sample = int(dtype[-2:]) // 8
+        self.bytes_per_sample = bytes_per_dtype(dtype)
         self.dtype = dtype
         self.num_per_block = num_per_block
         self.offset = 0

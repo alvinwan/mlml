@@ -1,6 +1,8 @@
 """Imports files into data/, in the format required by ssgd.
 
-This module provides several utilities for saving numpy matrices to
+This module provides several utilities for saving numpy matrices to binary. It
+also offers utilities for artificially inflating size of data, to exhibit the
+capabilities of ssgd.
 
 
 Usage:
