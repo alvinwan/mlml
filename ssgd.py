@@ -206,7 +206,8 @@ def evaluate_model(
         y_train: np.ndarray) -> Tuple[float, float]:
     """Evaluate the model's accuracy."""
     if one_hot:
-        y_train = de_one_hot(y_train)
+        if y_train is not None and y_train.shape[1] > 1:
+            y_train = de_one_hot(y_train)  # hacky
         y_train_hat = predict_one_hot(X_train, model)
         y_test_hat = predict_one_hot(X_test, model)
     else:
@@ -444,27 +445,27 @@ def train_ssgd(
         shape = (num_per_block, num_features + 1)
         w, I = np.zeros((num_features, num_classes)), np.identity(num_features)
         for p in range(epochs):
-            shuffle_train(algorithm, dtype, n, num_per_block, num_features,
-                          train_path)
-            blocks = BlockBuffer(dtype, num_per_block, train_path, shape)
+            shuffled_path = shuffle_train(
+                algorithm, dtype, n, num_per_block, num_features, train_path)
+            blocks = BlockBuffer(dtype, num_per_block, shuffled_path, shape)
             deblockify = lambda block: block_to_x_y(block, num_classes, one_hot)
             for X, Y in map(deblockify, blocks):
                 for i in range(X.shape[0]):
-                    x, y = np.matrix(X[i]), np.matrix(Y[i]).T
+                    x, y = np.matrix(X[i]), np.matrix(Y[i])
                     grad = x.T.dot(x.dot(w) - y) + 2 * reg * w
                     alpha = eta0 * damp ** ((n * p + i) % 1000)
                     w -= alpha * grad
 
-                if (i + p * X.shape[0]) % log_frequency == 0:
-                    train_accuracy, test_accuracy = evaluate_model(
-                        w, one_hot, X_test, X, y_test, Y)
-                    f.write(LOG_ENTRY_FORMAT.format(
-                        i=i,
-                        time=time.time() - TIME,
-                        loss=ridgeloss(X, w, Y, reg),
-                        train_accuracy=train_accuracy,
-                        test_accuracy=test_accuracy))
-    return None, None, w
+                    if (i + p * X.shape[0]) % log_frequency == 0:
+                        train_accuracy, test_accuracy = evaluate_model(
+                            w, one_hot, X_test, X, y_test, Y)
+                        f.write(LOG_ENTRY_FORMAT.format(
+                            i=i,
+                            time=time.time() - TIME,
+                            loss=ridgeloss(X, w, Y, reg),
+                            train_accuracy=train_accuracy,
+                            test_accuracy=test_accuracy))
+    return X, Y, w
 
 
 def block_to_x_y(

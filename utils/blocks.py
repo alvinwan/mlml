@@ -169,7 +169,6 @@ class BlockWriter:
             num_per_block: The number of samples per block
             path: Path to write to
         """
-        assert os.path.exists(path), 'File not found: %s' % path
         self.bytes_per_sample = bytes_per_dtype(dtype)
         self.dtype = dtype
         self.num_per_block = num_per_block

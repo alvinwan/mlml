@@ -19,13 +19,24 @@ def shuffle_train(
         n: int,
         num_features: int,
         num_per_block: int,
-        train_path: str) -> None:
-    """Invoke the correct shuffling algorithm."""
+        train_path: str) -> str:
+    """Invoke the correct shuffling algorithm.
+
+    Args:
+        algorithm: The shuffling algorithm to use
+        dtype: Data type of samples in file
+        n: Number of total samples
+        num_features: Number of features per sample
+        num_per_block: Number of training samples to load into each block
+        train_path: Path to the train file (binary)
+
+    Returns:
+        Path to the file containing shuffled data
+    """
     assert algorithm in ALGORITHMS, 'Invalid shuffling algorithm provided.'
     if algorithm == 'external_sort':
-        external_sort(dtype, n, num_per_block, num_features, train_path)
-    else:
-        external_shuffle(dtype, n, num_per_block, num_features, train_path)
+        return external_sort(dtype, n, num_per_block, num_features, train_path)
+    return external_shuffle(dtype, n, num_per_block, num_features, train_path)
 
 
 def external_sort(
@@ -60,7 +71,7 @@ def external_shuffle(
         n: int,
         num_features: int,
         num_per_block: int,
-        train_path: str) -> None:
+        train_path: str) -> str:
     """Shuffle the data, and save the shuffled data.
 
     *Note* May cause issues if num_per_block is not evenly divided by the
@@ -72,11 +83,15 @@ def external_shuffle(
         num_features: Number of features per sample
         num_per_block: Number of training samples to load into each block
         train_path: Path to the train file (binary)
+
+    Returns:
+        Path to the file containing shuffled data
     """
     num_buffers = n / num_per_block
-    with BlockScope('float64', 'samplesort', num_per_block) as scope:
+    shuffled_train_path = train_path + '.tmp'
+    with BlockScope(dtype, 'samplesort', num_per_block) as scope:
         shape = (num_per_block, num_features + 1)
-        writer = BlockWriter(dtype, num_per_block, train_path)
+        writer = BlockWriter(dtype, num_per_block, shuffled_train_path)
         blocks = BlockBuffer(dtype, num_per_block, train_path, shape)
         buffers = []
 
@@ -102,3 +117,4 @@ def external_shuffle(
             if current_block is not None:
                 np.random.shuffle(current_block)
                 writer.write(current_block)
+    return shuffled_train_path
