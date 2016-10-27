@@ -6,10 +6,11 @@ capabilities of ssgd.
 
 
 Usage:
-    imports.py mnist
+    imports.py mnist [options]
     imports.py spam [options]
 
 Options:
+    --dtype=<dtype>             Datatype of generated memmap [default: int8]
     --percentage=<percentage>   Percentage of data for training [default: 0.8]
 """
 
@@ -30,7 +31,7 @@ def save_inputs_labels_as_data(
         labels_train: np.ndarray,
         X_test: np.ndarray,
         labels_test: np.ndarray,
-        dtype: str='float64') -> None:
+        dtype: str='int8') -> None:
     """Save inputs and labels in a format that ssgd can process.
 
     Files will be saved using data/{namespace}-train and data/{namespace}-test.
@@ -52,7 +53,7 @@ def save_inputs_as_data(
         namespace: str,
         train: np.ndarray,
         test: np.ndarray,
-        dtype: str='float64') -> None:
+        dtype: str='int8') -> None:
     """Save data in a format that ssgd can process.
 
     Files will be saved using data/{namespace}-train and data/{namespace}-test.
@@ -68,7 +69,7 @@ def save_inputs_as_data(
         dtype=dtype,
         n=train.shape[0])
     train_fh = np.memmap(train_path, dtype=dtype, mode='w+', shape=train.shape)
-    train_fh[:] = train.astype('float64')[:]
+    train_fh[:] = train.astype(dtype)[:]
     del train_fh
 
     test_path = TEST_FILEPATH_FORMAT.format(
@@ -76,11 +77,11 @@ def save_inputs_as_data(
         dtype=dtype,
         n=test.shape[0])
     test_fh = np.memmap(test_path, dtype=dtype, mode='w+', shape=test.shape)
-    test_fh[:] = test.astype('float64')[:]
+    test_fh[:] = test.astype(dtype)[:]
     del test_fh
 
 
-def import_mnist():
+def import_mnist(dtype: str):
     """Imports MNIST files held in ./data/ folder.
 
     Converts all data to binary values and stores in a binary file under the
@@ -94,10 +95,10 @@ def import_mnist():
     labels_train = np.matrix(labels_train).T
     labels_test = np.matrix(labels_test).T
     save_inputs_labels_as_data('mnist', X_train, labels_train, X_test,
-                               labels_test)
+                               labels_test, dtype)
 
 
-def import_spam(training_data_percentage: float=0.8):
+def import_spam(dtype: str, training_data_percentage: float=0.8):
     """Imports spam files held in ./data/ folder.
 
     Converts all data to binary values and stores in a binary file under the
@@ -114,7 +115,7 @@ def import_spam(training_data_percentage: float=0.8):
     X_train, X_test = X[:N], X[N:]
     labels_train, labels_test = y[:N], y[N:]
     save_inputs_labels_as_data('spam', X_train, labels_train, X_test,
-                               labels_test)
+                               labels_test, dtype)
 
 
 def shuffle(X: np.ndarray, Y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -133,9 +134,9 @@ def main():
     """Run the command-line interface."""
     arguments = docopt.docopt(__doc__, version='SSGD 1.0')
     if arguments['mnist']:
-        import_mnist()
+        import_mnist(arguments['--dtype'])
     elif arguments['spam']:
-        import_spam(float(arguments['--percentage']))
+        import_spam(arguments['--dtype'], float(arguments['--percentage']))
 
 
 if __name__ == '__main__':
