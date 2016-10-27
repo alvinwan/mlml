@@ -51,7 +51,7 @@ from typing import Tuple
 
 TIME = time.time()
 LOG_PATH_FORMAT = 'logs/{algo}/run-{time}.csv'
-LOG_HEADER = 'i,Time,Loss,Train Accuracy,Test Accuracy'
+LOG_HEADER = 'i,Time,Loss,Train Accuracy,Test Accuracy\n'
 LOG_ENTRY_FORMAT = '{i},{time},{loss},{train_accuracy},{test_accuracy}\n'
 
 
@@ -133,16 +133,16 @@ def preprocess_arguments(arguments) -> dict:
     """
 
     if arguments['mnist']:
-        arguments['--train'] = 'data/mnist-int8-60000-train'
-        arguments['--test'] = 'data/mnist-int8-10000-test'
+        arguments['--train'] = 'data/mnist-%s-60000-train' % arguments['--dtype']
+        arguments['--test'] = 'data/mnist-%s-10000-test' % arguments['--dtype']
         arguments['--n'] = 60000
         arguments['--nt'] = 10000
         arguments['--k'] = 10
         arguments['--d'] = 784
         arguments['--one-hot'] = 'true'
     if arguments['spam']:
-        arguments['--train'] = 'data/spam-float64-2760-train'
-        arguments['--test'] = 'data/spam-float64-690-test'
+        arguments['--train'] = 'data/spam-%s-2760-train' % arguments['--dtype']
+        arguments['--test'] = 'data/spam-%s-690-test' % arguments['--dtype']
         arguments['--n'] = 2760
         arguments['--nt'] = 690
         arguments['--k'] = 1
@@ -176,10 +176,25 @@ def predict_binary(
 
 
 def predict_one_hot(
-        X:np.ndarray,
+        X: np.ndarray,
         model: np.ndarray) -> np.ndarray:
     """Predict for one hot vectors."""
-    return np.argmax(X.dot(model), axis=1)
+    return de_one_hot(X.dot(model))
+
+
+def de_one_hot(X: np.ndarray):
+    """Convert one hot vectors back into class labels."""
+    return np.argmax(X, axis=1)
+
+
+def ridgeloss(
+        X: np.ndarray,
+        w: np.ndarray,
+        Y: np.ndarray,
+        reg: float):
+    """Compute ridge regression loss."""
+    A = X.dot(w) - Y
+    return np.asscalar(np.linalg.norm(A) + reg * np.linalg.norm(w))
 
 
 def evaluate_model(
@@ -191,6 +206,7 @@ def evaluate_model(
         y_train: np.ndarray) -> Tuple[float, float]:
     """Evaluate the model's accuracy."""
     if one_hot:
+        y_train = de_one_hot(y_train)
         y_train_hat = predict_one_hot(X_train, model)
         y_test_hat = predict_one_hot(X_test, model)
     else:
@@ -295,24 +311,23 @@ def train_gd(
     with open(LOG_PATH_FORMAT.format(time=TIME, algo='gd'), 'w') as f:
         f.write(LOG_HEADER)
         shape = (n, num_features)
-        X, y = read_full_dataset(dtype, train_path, shape, num_classes, one_hot)
-        XTX, XTy, w = X.T.dot(X), X.T.dot(y), np.zeros((num_features, num_classes))
+        X, Y = read_full_dataset(dtype, train_path, shape, num_classes, one_hot)
+        XTX, XTy, w = X.T.dot(X), X.T.dot(Y), np.zeros((num_features, num_classes))
         for i in range(iterations):
             grad = XTX.dot(w) - XTy + 2*reg*w
             alpha = eta0*damp**(i % 100)
             w -= alpha * grad
 
             if i % log_frequency == 0:
-                xw_y = X.dot(w) - y
                 train_accuracy, test_accuracy = evaluate_model(
-                    w, one_hot, X_test, X, y_test, y)
+                    w, one_hot, X_test, X, y_test, Y)
                 f.write(LOG_ENTRY_FORMAT.format(
                     i=i,
                     time=time.time() - TIME,
-                    loss=xw_y.T.dot(xw_y) + reg*w.T.dot(w),
+                    loss=ridgeloss(X, w, Y, reg),
                     train_accuracy=train_accuracy,
                     test_accuracy=test_accuracy))
-    return X, y, w
+    return X, Y, w
 
 
 @timeit
@@ -366,13 +381,12 @@ def train_sgd(
                 w -= alpha * grad
 
                 if (i + p * X.shape[0]) % log_frequency == 0:
-                    xw_y = X.dot(w) - y
                     train_accuracy, test_accuracy = evaluate_model(
                         w, one_hot, X_test, X, y_test, Y)
                     f.write(LOG_ENTRY_FORMAT.format(
                         i=i,
                         time=time.time() - TIME,
-                        loss=xw_y.T.dot(xw_y) + reg*w.T.dot(w),
+                        loss=ridgeloss(X, w, Y, reg),
                         train_accuracy=train_accuracy,
                         test_accuracy=test_accuracy))
     return X, Y, w
@@ -441,14 +455,13 @@ def train_ssgd(
                     alpha = eta0 * damp ** ((n * p + i) % 1000)
                     w -= alpha * grad
 
-                if i % log_frequency == 0:
-                    xw_y = X.dot(w) - y
+                if (i + p * X.shape[0]) % log_frequency == 0:
                     train_accuracy, test_accuracy = evaluate_model(
-                        w, one_hot, X_test, X, y_test, y)
+                        w, one_hot, X_test, X, y_test, Y)
                     f.write(LOG_ENTRY_FORMAT.format(
                         i=i,
                         time=time.time() - TIME,
-                        loss=xw_y.T.dot(xw_y) + reg*w.T.dot(w),
+                        loss=ridgeloss(X, w, Y, reg),
                         train_accuracy=train_accuracy,
                         test_accuracy=test_accuracy))
     return None, None, w
