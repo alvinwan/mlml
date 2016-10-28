@@ -8,12 +8,10 @@ utilities from this module.
 import os
 import numpy as np
 
-from typing import Tuple
-
 
 def bytes_per_dtype(dtype: str) -> int:
     """Compute number of bytes for this dtype."""
-    suffixes = (('8', 8), ('32', 32), ('64', 64), ('_', 64))
+    suffixes = (('8', 1), ('32', 4), ('64', 8), ('_', 8))
     for suffix, size in suffixes:
         if dtype.endswith(suffix):
             return size
@@ -35,19 +33,24 @@ class BlockBuffer:
     def __init__(
             self,
             dtype: str,
+            n: int,
+            num_entries: int,
             num_per_block: int,
-            path: str,
-            shape: Tuple[int, int]):
+            path: str):
         """Initialize file handler but do not buffer data.
 
         Args:
             dtype: Data type of numbers in file
-            num_per_block: Number of samples per block
+            n: Number of samples in total
+            num_entries: Number of entries per row
+            num_per_block: Number of rows per block
             path: Path to the file to buffer
-            shape: Shape of the object to read
         """
         self.block = 0
-        self.handler = np.memmap(path, dtype=dtype, mode='r+', shape=shape)
+        self.bytes_per_entry = bytes_per_dtype(dtype) * num_entries
+        self.dtype = dtype
+        self.n = n
+        self.num_entries = num_entries
         self.num_per_block = int(num_per_block)
         self.path = path
 
@@ -76,8 +79,14 @@ class BlockBuffer:
         Returns:
             A tuple containing training inputs and outputs
         """
-        return self.handler[block * self.num_per_block:
-                            (block + 1) * self.num_per_block]
+        remainder = max(0, self.n - (block * self.num_per_block))
+        num = min(self.num_per_block, remainder)
+        return np.matrix(np.memmap(
+            self.path,
+            dtype=self.dtype,
+            mode='r+',
+            offset=block * (self.bytes_per_entry * self.num_per_block),
+            shape=(num, self.num_entries)))
 
     def __iter__(self):
         return self
@@ -134,59 +143,72 @@ class BlockScope:
         path = BlockScope.BLOCK_SCOPE_FILENAME_FORMAT.format(
             namespace=self.namespace,
             id=block_id)
-        self.paths.append(path)
-        handler = np.memmap(path, dtype=self.dtype, mode='w+', shape=data.shape)
-        handler[:] = data[:]
-        del handler
+        writer = BlockWriter(
+            self.dtype,
+            data.shape[0],
+            self.num_per_block,
+            path)
+        writer.offset = block_id
+        writer.write(data)
 
     def get_block_buffer(
             self,
             block_id: int,
-            num_per_block: int,
-            shape: Tuple[int, int]) -> BlockBuffer:
+            n: int,
+            num_entries: int,
+            num_per_block: int) -> BlockBuffer:
         """Reads a block of data from a temporary file in this scope.
 
         Args:
             block_id: Unique id for the block to read from
+            n: Number of samples
+            num_entries: Number of entries in each row
             num_per_block: Number per block for new buffer to give
-            shape: Shape of the object to read
         """
         path = BlockScope.BLOCK_SCOPE_FILENAME_FORMAT.format(
             namespace=self.namespace,
             id=block_id)
         assert os.path.exists(path), 'File not found: %s' % path
-        return BlockBuffer(self.dtype, num_per_block, path, shape)
+        return BlockBuffer(self.dtype, n, num_entries, num_per_block, path)
 
 
 class BlockWriter:
     """Writes to block within a numpy binary file."""
 
-    def __init__(self, dtype: str, num_per_block: int, path: str):
+    def __init__(
+            self,
+            dtype: str,
+            num_entries: int,
+            num_per_block: int,
+            path: str):
         """Initialize the block writer
 
         Args:
             dtype: Type of data to write and read
-            num_per_block: The number of samples per block
+            num_entries: Number of entries per row
+            num_per_block: The number of rows per block
             path: Path to write to
         """
-        self.bytes_per_sample = bytes_per_dtype(dtype)
+        self.bytes_per_entry = bytes_per_dtype(dtype) * num_entries
         self.dtype = dtype
         self.num_per_block = num_per_block
         self.offset = 0
         self.path = path
 
-    def write(self, data: np.ndarray):
+    def write(self, data: np.ndarray, mode: str='r+'):
         """Write a block of data to disk.
 
         Args:
             data: A block of data
+            mode: The memmap mode
         """
-
+        if not os.path.exists(self.path):
+            mode = 'w+'
         handler = np.memmap(
             self.path,
             dtype=self.dtype,
-            mode='w+',
-            offset=self.offset * (self.bytes_per_sample * self.num_per_block),
+            mode=mode,
+            offset=self.offset * (self.bytes_per_entry * self.num_per_block),
             shape=data.shape)
         handler[:] = data[:]
         self.offset += 1

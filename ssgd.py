@@ -17,7 +17,7 @@ Usage:
 
 Options:
     --algo=<algo>       Shuffling algorithm to use [default: external_shuffle]
-    --buffer=<num>      Size of memory in megabytes (MB) [default: 5]
+    --buffer=<num>      Size of memory in megabytes (MB) [default: 10]
     --d=<d>             Number of features
     --damp=<damp>       Amount to multiply learning rate by per epoch [default: 0.99]
     --dtype=<dtype>     The numeric type of each sample [default: float64]
@@ -31,6 +31,7 @@ Options:
     --one-hot=<onehot>  Whether or not to use one hot encoding [default: False]
     --nthreads=<nthr>   Number of threads [default: 1]
     --reg=<reg>         Regularization constant [default: 0.1]
+    --step=<step>       Number of iterations between each alpha decay [default: 1000]
     --train=<train>     Path to training data binary [default: data/train]
     --test=<test>       Path to test data [default: data/test]
 """
@@ -117,6 +118,7 @@ def main() -> None:
             num_threads=arguments['--nthreads'],
             one_hot=arguments['--one-hot'],
             reg=arguments['--reg'],
+            step=arguments['--step'],
             train_path=arguments['--train'],
             X_test=X_test,
             y_test=y_test)
@@ -133,6 +135,7 @@ def preprocess_arguments(arguments) -> dict:
     """
 
     if arguments['mnist']:
+        arguments['--dtype'] = 'int8'
         arguments['--train'] = 'data/mnist-%s-60000-train' % arguments['--dtype']
         arguments['--test'] = 'data/mnist-%s-10000-test' % arguments['--dtype']
         arguments['--n'] = 60000
@@ -147,7 +150,6 @@ def preprocess_arguments(arguments) -> dict:
         arguments['--nt'] = 690
         arguments['--k'] = 1
         arguments['--d'] = 55
-        arguments['--epochs'] = 20
 
     arguments['--damp'] = float(arguments['--damp'])
     arguments['--epochs'] = int(arguments['--epochs'])
@@ -158,12 +160,15 @@ def preprocess_arguments(arguments) -> dict:
     arguments['--nthreads'] = int(arguments['--nthreads'])
     arguments['--d'] = int(arguments['--d'])
     arguments['--k'] = int(arguments['--k'])
-    arguments['--num-per-block'] = min(int(
-        (float(arguments['--buffer']) * (10 ** 6)) //
-        ((arguments['--d'] + 1) * bytes_per_dtype(arguments['--dtype']))),
-        arguments['--n'])
     arguments['--one-hot'] = arguments['--one-hot'].lower() == 'true'
     arguments['--reg'] = float(arguments['--reg'])
+    arguments['--step'] = int(arguments['--step'])
+
+    bytes_total = float(arguments['--buffer']) * (10 ** 6)
+    bytes_per_sample = (arguments['--d'] + 1) * bytes_per_dtype(arguments['--dtype'])
+    arguments['--num-per-block'] = min(
+        int(bytes_total // bytes_per_sample),
+        arguments['--n'])
     return arguments
 
 
@@ -378,7 +383,7 @@ def train_sgd(
             for i in indices:
                 x, y = np.matrix(X[i]), np.matrix(Y[i])
                 grad = x.T.dot(x.dot(w) - y) + 2 * reg * w
-                alpha = eta0 * damp ** ((n * p + i) % 1000)
+                alpha = eta0 * damp ** ((n * p + i) // 10000)
                 w -= alpha * grad
 
                 if (i + p * X.shape[0]) % log_frequency == 0:
@@ -408,6 +413,7 @@ def train_ssgd(
         num_threads: int,
         one_hot: bool,
         reg: float,
+        step: int,
         train_path: str,
         X_test: np.ndarray,
         y_test: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -433,6 +439,7 @@ def train_ssgd(
         one_hot: Whether or not to use one hot encodings
         limited by the size of the buffer and size of each sample
         reg: Regularization constant
+        step: Number of iterations between each alpha decay
         train_path: Path to the training file (binary)
         X_test: Test input data
         y_test: Test output data
@@ -442,18 +449,17 @@ def train_ssgd(
     """
     with open(LOG_PATH_FORMAT.format(time=TIME, algo='ssgd'), 'w') as f:
         f.write(LOG_HEADER)
-        shape = (num_per_block, num_features + 1)
         w, I = np.zeros((num_features, num_classes)), np.identity(num_features)
         for p in range(epochs):
             shuffled_path = shuffle_train(
                 algorithm, dtype, n, num_per_block, num_features, train_path)
-            blocks = BlockBuffer(dtype, num_per_block, shuffled_path, shape)
+            blocks = BlockBuffer(dtype, n, num_features + 1, num_per_block, shuffled_path)
             deblockify = lambda block: block_to_x_y(block, num_classes, one_hot)
             for X, Y in map(deblockify, blocks):
                 for i in range(X.shape[0]):
                     x, y = np.matrix(X[i]), np.matrix(Y[i])
                     grad = x.T.dot(x.dot(w) - y) + 2 * reg * w
-                    alpha = eta0 * damp ** ((n * p + i) % 1000)
+                    alpha = eta0 * damp ** ((n * p + i) // step)
                     w -= alpha * grad
 
                     if (i + p * X.shape[0]) % log_frequency == 0:
@@ -465,6 +471,7 @@ def train_ssgd(
                             loss=ridgeloss(X, w, Y, reg),
                             train_accuracy=train_accuracy,
                             test_accuracy=test_accuracy))
+            print('='*30, '\n * SGD : Epoch {p} finished.'.format(p=p))
     return X, Y, w
 
 

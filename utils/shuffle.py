@@ -63,7 +63,7 @@ def external_sort(
         num_per_block: Number of training samples to load into each block
         train_path: Path to the train file (binary)
     """
-    pass
+    raise NotImplementedError
 
 
 def external_shuffle(
@@ -73,9 +73,6 @@ def external_shuffle(
         num_per_block: int,
         train_path: str) -> str:
     """Shuffle the data, and save the shuffled data.
-
-    *Note* May cause issues if num_per_block is not evenly divided by the
-    number of buffers. This means some entry in the block will be left empty.
 
     Args:
         dtype: Data type of samples in file
@@ -87,18 +84,22 @@ def external_shuffle(
     Returns:
         Path to the file containing shuffled data
     """
-    num_buffers = n / num_per_block
+    num_buffers = int(np.ceil(n / num_per_block))
     shuffled_train_path = train_path + '.tmp'
     with BlockScope(dtype, 'samplesort', num_per_block) as scope:
-        shape = (num_per_block, num_features + 1)
-        writer = BlockWriter(dtype, num_per_block, shuffled_train_path)
-        blocks = BlockBuffer(dtype, num_per_block, train_path, shape)
+        writer = BlockWriter(
+            dtype,
+            num_per_block,
+            num_features + 1,
+            shuffled_train_path)
+        blocks = BlockBuffer(dtype, n, num_features + 1, num_per_block, train_path)
         buffers = []
 
         for i, block in enumerate(blocks):
             np.random.shuffle(block)
             scope.write_block(i, block)
-            buffer = scope.get_block_buffer(i, num_per_block // num_buffers, shape)
+            buffer = scope.get_block_buffer(i, num_per_block, num_features + 1,
+                                            num_per_block // num_buffers)
             buffers.append(buffer)
 
         while buffers:

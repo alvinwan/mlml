@@ -71,6 +71,7 @@ def save_inputs_as_data(
     train_fh = np.memmap(train_path, dtype=dtype, mode='w+', shape=train.shape)
     train_fh[:] = train.astype(dtype)[:]
     del train_fh
+    print(' * Wrote to', train_path, 'with datatype', dtype)
 
     test_path = TEST_FILEPATH_FORMAT.format(
         namespace=namespace,
@@ -79,6 +80,7 @@ def save_inputs_as_data(
     test_fh = np.memmap(test_path, dtype=dtype, mode='w+', shape=test.shape)
     test_fh[:] = test.astype(dtype)[:]
     del test_fh
+    print(' * Wrote to', test_path, 'with datatype', dtype)
 
 
 def import_mnist(dtype: str):
