@@ -24,14 +24,15 @@ Options:
     --epochs=<epochs>   Number of passes over the training data [default: 5]
     --eta0=<eta0>       The initial learning rate [default: 1e-6]
     --iters=<iters>     The number of iterations, used for gd and sgd [default: 5000]
-    --logfreq=<freq>    Number of iterations between log entries. 0 for no log. [default: 100]
+    --logfreq=<freq>    Number of iterations between log entries. 0 for no log. [default: 1000]
+    --momentum=<mom>    Momentum to apply to changes in weight [default: 0.9]
     --n=<n>             Number of training samples
     --k=<k>             Number of classes [default: 10]
     --nt=<nt>           Number of testing samples
     --one-hot=<onehot>  Whether or not to use one hot encoding [default: False]
     --nthreads=<nthr>   Number of threads [default: 1]
     --reg=<reg>         Regularization constant [default: 0.1]
-    --step=<step>       Number of iterations between each alpha decay [default: 1000]
+    --step=<step>       Number of iterations between each alpha decay [default: 10000]
     --train=<train>     Path to training data binary [default: data/train]
     --test=<test>       Path to test data [default: data/test]
 """
@@ -95,11 +96,13 @@ def main() -> None:
             eta0=arguments['--eta0'],
             epochs=arguments['--epochs'],
             log_frequency=arguments['--logfreq'],
+            momentum=arguments['--momentum'],
             n=arguments['--n'],
             num_classes=arguments['--k'],
             num_features=arguments['--d'],
             one_hot=arguments['--one-hot'],
             reg=arguments['--reg'],
+            step=arguments['--step'],
             train_path=arguments['--train'],
             X_test=X_test,
             y_test=y_test)
@@ -111,6 +114,7 @@ def main() -> None:
             epochs=arguments['--epochs'],
             eta0=arguments['--eta0'],
             log_frequency=arguments['--logfreq'],
+            momentum=arguments['--momentum'],
             n=arguments['--n'],
             num_classes=arguments['--k'],
             num_features=arguments['--d'],
@@ -156,6 +160,7 @@ def preprocess_arguments(arguments) -> dict:
     arguments['--eta0'] = float(arguments['--eta0'])
     arguments['--iters'] = int(arguments['--iters'])
     arguments['--logfreq'] = int(arguments['--logfreq'])
+    arguments['--momentum'] = float(arguments['--momentum'])
     arguments['--n'] = int(arguments['--n'])
     arguments['--nthreads'] = int(arguments['--nthreads'])
     arguments['--d'] = int(arguments['--d'])
@@ -343,11 +348,13 @@ def train_sgd(
         eta0: float,
         epochs: int,
         log_frequency: int,
+        momentum: float,
         n: int,
         num_classes: int,
         num_features: int,
         one_hot: bool,
         reg: float,
+        step: int,
         train_path: str,
         X_test: np.ndarray,
         y_test: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -359,12 +366,14 @@ def train_sgd(
         eta0: Starting learning rate
         epochs: Number of passes over training data
         log_frequency: Number of iterations between log entries
+        momentum: Momentum to apply to changes in w
         n: Number of training samples
         num_classes: Number of classes
         num_features: Number of features
         one_hot: Whether or not to use one hot encodings
         limited by the size of the buffer and size of each sample
         reg: Regularization constant
+        step: Number of iterations between each alpha decay
         train_path: Path to the training file (binary)
         X_test: Test input data
         y_test: Test output data
@@ -374,27 +383,29 @@ def train_sgd(
     """
     with open(LOG_PATH_FORMAT.format(time=TIME, algo='sgd'), 'w') as f:
         f.write(LOG_HEADER)
-        shape = (n, num_features)
+        shape, w_delta = (n, num_features), 0
         X, Y = read_full_dataset(dtype, train_path, shape, num_classes, one_hot)
         w = np.zeros((num_features, num_classes))
         for p in range(epochs):
             indices = list(range(X.shape[0]))
             np.random.shuffle(indices)
-            for i in indices:
-                x, y = np.matrix(X[i]), np.matrix(Y[i])
-                grad = x.T.dot(x.dot(w) - y) + 2 * reg * w
-                alpha = eta0 * damp ** ((n * p + i) // 10000)
-                w -= alpha * grad
+            for i, index in enumerate(indices):
+                x, y = np.matrix(X[index]), np.matrix(Y[index])
+                grad = x.T.dot(x.dot(w) - y) + reg * w
+                alpha = eta0 * damp ** ((n * p + i) // step)
+                w_delta = alpha * grad + momentum * w_delta
+                w -= w_delta
 
                 if (i + p * X.shape[0]) % log_frequency == 0:
                     train_accuracy, test_accuracy = evaluate_model(
                         w, one_hot, X_test, X, y_test, Y)
                     f.write(LOG_ENTRY_FORMAT.format(
-                        i=i,
+                        i=i + p * X.shape[0],
                         time=time.time() - TIME,
                         loss=ridgeloss(X, w, Y, reg),
                         train_accuracy=train_accuracy,
                         test_accuracy=test_accuracy))
+        print('=' * 30, '\n * SGD : Epoch {p} finished.'.format(p=p))
     return X, Y, w
 
 
@@ -406,6 +417,7 @@ def train_ssgd(
         epochs: int,
         eta0: float,
         log_frequency: int,
+        momentum: float,
         n: int,
         num_classes: int,
         num_features: int,
@@ -432,6 +444,7 @@ def train_ssgd(
         epochs: Number of passes over training data
         eta0: Starting learning rate
         log_frequency: Number of iterations between log entries
+        momentum: Momentum to apply to changes in w
         n: Number of training samples
         num_classes: Number of classes
         num_features: Number of features
@@ -450,23 +463,27 @@ def train_ssgd(
     with open(LOG_PATH_FORMAT.format(time=TIME, algo='ssgd'), 'w') as f:
         f.write(LOG_HEADER)
         w, I = np.zeros((num_features, num_classes)), np.identity(num_features)
+        w_delta = 0
         for p in range(epochs):
             shuffled_path = shuffle_train(
                 algorithm, dtype, n, num_per_block, num_features, train_path)
             blocks = BlockBuffer(dtype, n, num_features + 1, num_per_block, shuffled_path)
             deblockify = lambda block: block_to_x_y(block, num_classes, one_hot)
-            for X, Y in map(deblockify, blocks):
+            for b, (X, Y) in enumerate(map(deblockify, blocks)):
+                if Y.shape[0] < Y.shape[1]:
+                    Y.shape = (X.shape[0], 1)  # hacky
                 for i in range(X.shape[0]):
                     x, y = np.matrix(X[i]), np.matrix(Y[i])
-                    grad = x.T.dot(x.dot(w) - y) + 2 * reg * w
+                    grad = x.T.dot(x.dot(w) - y) + reg * w
                     alpha = eta0 * damp ** ((n * p + i) // step)
-                    w -= alpha * grad
+                    w_delta = alpha * grad + momentum * w_delta
+                    w -= w_delta
 
                     if (i + p * X.shape[0]) % log_frequency == 0:
                         train_accuracy, test_accuracy = evaluate_model(
                             w, one_hot, X_test, X, y_test, Y)
                         f.write(LOG_ENTRY_FORMAT.format(
-                            i=i,
+                            i=i + b * num_per_block + p * X.shape[0],
                             time=time.time() - TIME,
                             loss=ridgeloss(X, w, Y, reg),
                             train_accuracy=train_accuracy,
