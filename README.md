@@ -26,21 +26,25 @@ Run `ssgd.py` at the root of the repository to begin using the utility.
         ssgd.py gd --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
         ssgd.py sgd --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
         ssgd.py ssgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
-        ssgd.py (closed|gd|sgd|ssgd) mnist
+        ssgd.py (closed|gd|sgd|ssgd) (mnist|spam) [options]
     
     Options:
         --algo=<algo>       Shuffling algorithm to use [default: external_shuffle]
-        --buffer=<num>      Size of memory in megabytes (MB) [default: 5]
+        --buffer=<num>      Size of memory in megabytes (MB) [default: 10]
         --d=<d>             Number of features
         --damp=<damp>       Amount to multiply learning rate by per epoch [default: 0.99]
         --dtype=<dtype>     The numeric type of each sample [default: float64]
         --epochs=<epochs>   Number of passes over the training data [default: 5]
-        --eta0=<eta0>       The initial learning rate [default: 1]
-        --iters=<iters>     The number of iterations, used for gd and sgd [default: 1000]
+        --eta0=<eta0>       The initial learning rate [default: 1e-6]
+        --iters=<iters>     The number of iterations, used for gd and sgd [default: 5000]
+        --logfreq=<freq>    Number of iterations between log entries. 0 for no log. [default: 1000]
+        --momentum=<mom>    Momentum to apply to changes in weight [default: 0.9]
         --n=<n>             Number of training samples
         --k=<k>             Number of classes [default: 10]
         --nt=<nt>           Number of testing samples
-        --one-hot=<onehot>  Whether or not to use one hot encoding
+        --one-hot=<onehot>  Whether or not to use one hot encoding [default: False]
+        --nthreads=<nthr>   Number of threads [default: 1]
         --reg=<reg>         Regularization constant [default: 0.1]
+        --step=<step>       Number of iterations between each alpha decay [default: 10000]
         --train=<train>     Path to training data binary [default: data/train]
         --test=<test>       Path to test data [default: data/test]
