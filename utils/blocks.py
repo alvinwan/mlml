@@ -11,7 +11,7 @@ import numpy as np
 
 def bytes_per_dtype(dtype: str) -> int:
     """Compute number of bytes for this dtype."""
-    suffixes = (('8', 1), ('32', 4), ('64', 8), ('_', 8))
+    suffixes = (('8', 1), ('16', 2), ('32', 4), ('64', 8), ('_', 8))
     for suffix, size in suffixes:
         if dtype.endswith(suffix):
             return size

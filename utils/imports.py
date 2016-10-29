@@ -10,7 +10,7 @@ Usage:
     imports.py spam [options]
 
 Options:
-    --dtype=<dtype>             Datatype of generated memmap [default: int8]
+    --dtype=<dtype>             Datatype of generated memmap [default: uint8]
     --percentage=<percentage>   Percentage of data for training [default: 0.8]
 """
 
@@ -31,7 +31,7 @@ def save_inputs_labels_as_data(
         labels_train: np.ndarray,
         X_test: np.ndarray,
         labels_test: np.ndarray,
-        dtype: str='int8') -> None:
+        dtype: str='uint8') -> None:
     """Save inputs and labels in a format that ssgd can process.
 
     Files will be saved using data/{namespace}-train and data/{namespace}-test.
@@ -53,7 +53,7 @@ def save_inputs_as_data(
         namespace: str,
         train: np.ndarray,
         test: np.ndarray,
-        dtype: str='int8') -> None:
+        dtype: str='uint8') -> None:
     """Save data in a format that ssgd can process.
 
     Files will be saved using data/{namespace}-train and data/{namespace}-test.
@@ -92,8 +92,6 @@ def import_mnist(dtype: str):
     mndata = MNIST('./data/')
     X_train, labels_train = map(np.array, mndata.load_training())
     X_test, labels_test = map(np.array, mndata.load_testing())
-    X_train = X_train / 255.0
-    X_test = X_test / 255.0
     labels_train = np.matrix(labels_train).T
     labels_test = np.matrix(labels_test).T
     save_inputs_labels_as_data('mnist', X_train, labels_train, X_test,

@@ -13,6 +13,7 @@ Usage:
     ssgd.py gd --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
     ssgd.py sgd --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
     ssgd.py ssgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
+    ssgd.py hssgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
     ssgd.py (closed|gd|sgd|ssgd) (mnist|spam) [options]
 
 Options:
@@ -86,6 +87,7 @@ def main() -> None:
             num_features=arguments['--d'],
             one_hot=arguments['--one-hot'],
             reg=arguments['--reg'],
+            step=arguments['--step'],
             train_path=arguments['--train'],
             X_test=X_test,
             y_test=y_test)
@@ -119,13 +121,14 @@ def main() -> None:
             num_classes=arguments['--k'],
             num_features=arguments['--d'],
             num_per_block=arguments['--num-per-block'],
-            num_threads=arguments['--nthreads'],
             one_hot=arguments['--one-hot'],
             reg=arguments['--reg'],
             step=arguments['--step'],
             train_path=arguments['--train'],
             X_test=X_test,
             y_test=y_test)
+    elif arguments['hssgd']:
+        raise NotImplementedError
     else:
         raise UserWarning('Invalid algorithm specified.')
     evaluate_model(model, arguments['--one-hot'], X_test, X, y_test, Y)
@@ -139,7 +142,7 @@ def preprocess_arguments(arguments) -> dict:
     """
 
     if arguments['mnist']:
-        arguments['--dtype'] = 'int8'
+        arguments['--dtype'] = 'uint8'
         arguments['--train'] = 'data/mnist-%s-60000-train' % arguments['--dtype']
         arguments['--test'] = 'data/mnist-%s-10000-test' % arguments['--dtype']
         arguments['--n'] = 60000
@@ -295,6 +298,7 @@ def train_gd(
         num_classes: int,
         one_hot: bool,
         reg: float,
+        step: int,
         train_path: str,
         X_test: np.ndarray,
         y_test: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -312,6 +316,7 @@ def train_gd(
         one_hot: Whether or not to train with one hot encodings
         limited by the size of the buffer and size of each sample
         reg: Regularization constant
+        step: Number of iterations between each alpha decay
         train_path: Path to the training file (binary)
         X_test: Test input data
         y_test: Test output data
@@ -323,13 +328,14 @@ def train_gd(
         f.write(LOG_HEADER)
         shape = (n, num_features)
         X, Y = read_full_dataset(dtype, train_path, shape, num_classes, one_hot)
-        XTX, XTy, w = X.T.dot(X), X.T.dot(Y), np.zeros((num_features, num_classes))
+        XTX, XTy = X.T.dot(X), X.T.dot(Y)
+        w = np.zeros((num_features, num_classes))
         for i in range(iterations):
-            grad = XTX.dot(w) - XTy + 2*reg*w
-            alpha = eta0*damp**(i % 100)
+            grad = XTX.dot(w) - XTy + reg * w
+            alpha = eta0 * damp ** (i // step)
             w -= alpha * grad
 
-            if i % log_frequency == 0:
+            if log_frequency and i % log_frequency == 0:
                 train_accuracy, test_accuracy = evaluate_model(
                     w, one_hot, X_test, X, y_test, Y)
                 f.write(LOG_ENTRY_FORMAT.format(
@@ -383,29 +389,30 @@ def train_sgd(
     """
     with open(LOG_PATH_FORMAT.format(time=TIME, algo='sgd'), 'w') as f:
         f.write(LOG_HEADER)
-        shape, w_delta = (n, num_features), 0
-        X, Y = read_full_dataset(dtype, train_path, shape, num_classes, one_hot)
+        shape, w_delta, index = (n, num_features), 0, 0
         w = np.zeros((num_features, num_classes))
+        X, Y = read_full_dataset(dtype, train_path, shape, num_classes, one_hot)
         for p in range(epochs):
             indices = list(range(X.shape[0]))
             np.random.shuffle(indices)
-            for i, index in enumerate(indices):
-                x, y = np.matrix(X[index]), np.matrix(Y[index])
+            for i, random_index in enumerate(indices):
+                index += 1
+                x, y = np.matrix(X[random_index]), np.matrix(Y[random_index])
                 grad = x.T.dot(x.dot(w) - y) + reg * w
                 alpha = eta0 * damp ** ((n * p + i) // step)
                 w_delta = alpha * grad + momentum * w_delta
                 w -= w_delta
 
-                if (i + p * X.shape[0]) % log_frequency == 0:
+                if log_frequency and index % log_frequency == 0:
                     train_accuracy, test_accuracy = evaluate_model(
                         w, one_hot, X_test, X, y_test, Y)
                     f.write(LOG_ENTRY_FORMAT.format(
-                        i=i + p * X.shape[0],
+                        i=index,
                         time=time.time() - TIME,
                         loss=ridgeloss(X, w, Y, reg),
                         train_accuracy=train_accuracy,
                         test_accuracy=test_accuracy))
-        print('=' * 30, '\n * SGD : Epoch {p} finished.'.format(p=p))
+            print('=' * 30, '\n * SGD : Epoch {p} finished.'.format(p=p))
     return X, Y, w
 
 
@@ -422,7 +429,6 @@ def train_ssgd(
         num_classes: int,
         num_features: int,
         num_per_block: int,
-        num_threads: int,
         one_hot: bool,
         reg: float,
         step: int,
@@ -463,27 +469,28 @@ def train_ssgd(
     with open(LOG_PATH_FORMAT.format(time=TIME, algo='ssgd'), 'w') as f:
         f.write(LOG_HEADER)
         w, I = np.zeros((num_features, num_classes)), np.identity(num_features)
-        w_delta = 0
+        w_delta = index = 0
         for p in range(epochs):
             shuffled_path = shuffle_train(
                 algorithm, dtype, n, num_per_block, num_features, train_path)
             blocks = BlockBuffer(dtype, n, num_features + 1, num_per_block, shuffled_path)
             deblockify = lambda block: block_to_x_y(block, num_classes, one_hot)
-            for b, (X, Y) in enumerate(map(deblockify, blocks)):
+            for X, Y in map(deblockify, blocks):
                 if Y.shape[0] < Y.shape[1]:
                     Y.shape = (X.shape[0], 1)  # hacky
                 for i in range(X.shape[0]):
+                    index += 1
                     x, y = np.matrix(X[i]), np.matrix(Y[i])
                     grad = x.T.dot(x.dot(w) - y) + reg * w
                     alpha = eta0 * damp ** ((n * p + i) // step)
                     w_delta = alpha * grad + momentum * w_delta
                     w -= w_delta
 
-                    if (i + p * X.shape[0]) % log_frequency == 0:
+                    if log_frequency and index % log_frequency == 0:
                         train_accuracy, test_accuracy = evaluate_model(
                             w, one_hot, X_test, X, y_test, Y)
                         f.write(LOG_ENTRY_FORMAT.format(
-                            i=i + b * num_per_block + p * X.shape[0],
+                            i=index,
                             time=time.time() - TIME,
                             loss=ridgeloss(X, w, Y, reg),
                             train_accuracy=train_accuracy,
@@ -507,7 +514,8 @@ def block_to_x_y(
         X: the data inputs
         Y: the data outputs
     """
-    X, y = block[:, :-1], np.matrix(block[:, -1].astype(int, copy=False)).T
+    X = block[:, :-1].astype('float64', copy=False)
+    y = np.matrix(block[:, -1].astype(int, copy=False)).T
     if one_hot:
         y = np.eye(num_classes)[y].reshape((X.shape[0], num_classes))
     return X, y
