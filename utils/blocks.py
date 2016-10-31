@@ -148,7 +148,6 @@ class BlockScope:
             data.shape[0],
             self.num_per_block,
             path)
-        writer.offset = block_id
         writer.write(data)
 
     def get_block_buffer(

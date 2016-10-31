@@ -99,12 +99,11 @@ def external_shuffle(
         for i, block in enumerate(blocks):
             np.random.shuffle(block)
             scope.write_block(i, block)
-            buffer = scope.get_block_buffer(i, num_per_block, num_features + 1,
+            buffer = scope.get_block_buffer(i, block.shape[0], num_features + 1,
                                             num_per_block // num_buffers)
             buffers.append(buffer)
 
         while buffers:
-            np.random.shuffle(buffers)
             current_block, remaining_buffers = None, []
             for i, buffer in enumerate(buffers):
                 try:

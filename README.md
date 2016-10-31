@@ -22,12 +22,13 @@ static-typing was introduced to comply with PEP 484, Python 3.5.
 Run `ssgd.py` at the root of the repository to begin using the utility.
 
     Usage:
-        ssgd.py closed --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
-        ssgd.py gd --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
-        ssgd.py sgd --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
-        ssgd.py ssgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
-        ssgd.py (closed|gd|sgd|ssgd) (mnist|spam) [options]
-    
+    ssgd.py closed --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
+    ssgd.py gd --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
+    ssgd.py sgd --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
+    ssgd.py ssgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
+    ssgd.py hsgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
+    ssgd.py (closed|gd|sgd|ssgd) (mnist|spam) [options]
+
     Options:
         --algo=<algo>       Shuffling algorithm to use [default: external_shuffle]
         --buffer=<num>      Size of memory in megabytes (MB) [default: 10]
@@ -48,3 +49,9 @@ Run `ssgd.py` at the root of the repository to begin using the utility.
         --step=<step>       Number of iterations between each alpha decay [default: 10000]
         --train=<train>     Path to training data binary [default: data/train]
         --test=<test>       Path to test data [default: data/test]
+        --simulated         Mark memory constraints as simulated. Allows full accuracy tests.
+        
+# References
+
+- [Learning Multiple Layers of Features from Tiny Images](https://www.cs.toronto.edu/~kriz/learning-features-2009-TR.pdf), Alex Krizhevsky, 2009.
+- F. Niu, B. Recht, C. R ́e, S. J. Wright. [Hogwild!: A Lock-Free Approach to Parallelizing Stochastic Gradient Descent](https://people.eecs.berkeley.edu/~brecht/papers/hogwildTR.pdf), 2011.
