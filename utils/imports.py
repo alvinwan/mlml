@@ -6,14 +6,14 @@ capabilities of ssgd.
 
 
 Usage:
-    imports.py mnist [options]
-    imports.py spam [options]
+    imports.py (mnist|spam|cifar-10) [options]
 
 Options:
     --dtype=<dtype>             Datatype of generated memmap [default: uint8]
     --percentage=<percentage>   Percentage of data for training [default: 0.8]
 """
 
+import pickle
 import docopt
 import numpy as np
 import scipy.io
@@ -118,6 +118,32 @@ def import_spam(dtype: str, training_data_percentage: float=0.8):
                                labels_test, dtype)
 
 
+def import_cifar_10(dtype: str):
+    """Imports CIFAR files held in ./data/ folder.
+
+    Stores in a binary file under the data directory.
+    """
+    train_paths = ['data/data_batch_%d' % i for i in range(1, 6)]
+    X_train, labels_train = None, None
+    for train_path in train_paths:
+        with open(train_path, 'rb') as f:
+            raw = pickle.load(f, encoding='latin1')
+            X_train = raw['data'] if X_train is None else \
+                np.concatenate((X_train, raw['data']))
+            labels_train = raw['labels'] if labels_train is None else \
+                np.concatenate((labels_train, raw['labels']))
+    labels_train = np.matrix(labels_train).T
+
+    test_path = 'data/test_batch'
+    with open(test_path, 'rb') as f:
+        raw = pickle.load(f, encoding='latin1')
+        X_test = raw['data']
+        labels_test = np.matrix(raw['labels']).T
+
+    save_inputs_labels_as_data('cifar-10', X_train, labels_train, X_test,
+                               labels_test, dtype)
+
+
 def shuffle(X: np.ndarray, Y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """Shuffle all X and Y data, in tandem with one another.
 
@@ -137,6 +163,8 @@ def main():
         import_mnist(arguments['--dtype'])
     elif arguments['spam']:
         import_spam(arguments['--dtype'], float(arguments['--percentage']))
+    elif arguments['cifar-10']:
+        import_cifar_10(arguments['--dtype'])
 
 
 if __name__ == '__main__':

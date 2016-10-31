@@ -14,7 +14,7 @@ Usage:
     ssgd.py sgd --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
     ssgd.py ssgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
     ssgd.py hssgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
-    ssgd.py (closed|gd|sgd|ssgd) (mnist|spam) [options]
+    ssgd.py (closed|gd|sgd|ssgd) (mnist|spam|cifar-10) [options]
 
 Options:
     --algo=<algo>       Shuffling algorithm to use [default: external_shuffle]
@@ -22,7 +22,7 @@ Options:
     --d=<d>             Number of features
     --damp=<damp>       Amount to multiply learning rate by per epoch [default: 0.99]
     --dtype=<dtype>     The numeric type of each sample [default: float64]
-    --epochs=<epochs>   Number of passes over the training data [default: 5]
+    --epochs=<epochs>   Number of passes over the training data [default: 3]
     --eta0=<eta0>       The initial learning rate [default: 1e-6]
     --iters=<iters>     The number of iterations, used for gd and sgd [default: 5000]
     --logfreq=<freq>    Number of iterations between log entries. 0 for no log. [default: 1000]
@@ -168,6 +168,16 @@ def preprocess_arguments(arguments) -> dict:
         arguments['--nt'] = 690
         arguments['--k'] = 1
         arguments['--d'] = 55
+    if arguments['cifar-10']:
+        arguments['--dtype'] = 'uint8'
+        arguments['--train'] = 'data/cifar-10-%s-50000-train' % arguments['--dtype']
+        arguments['--test'] = 'data/cifar-10-%s-10000-test' % arguments['--dtype']
+        arguments['--n'] = 50000
+        arguments['--nt'] = 10000
+        arguments['--k'] = 10
+        arguments['--d'] = 3072
+        arguments['--one-hot'] = 'true'
+
 
     arguments['--damp'] = float(arguments['--damp'])
     arguments['--data-hook'] = arguments.get('--data-hook', lambda *args: args)
