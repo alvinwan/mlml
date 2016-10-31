@@ -9,6 +9,7 @@ import numpy as np
 from .blocks import BlockBuffer
 from .blocks import BlockScope
 from .blocks import BlockWriter
+from math import ceil
 
 ALGORITHMS = ('external_sort', 'external_shuffle')
 
@@ -103,19 +104,60 @@ def external_shuffle(
             buffers.append(buffer)
 
         while buffers:
+            np.random.shuffle(buffers)
             current_block, remaining_buffers = None, []
-            for i, buffer in enumerate(buffers[:]):
+            for i, buffer in enumerate(buffers):
                 try:
                     block = next(buffer)
                 except StopIteration:
                     continue
                 remaining_buffers.append(buffer)
-                if current_block is None:
-                    current_block = block
-                else:
-                    current_block = np.concatenate((current_block, block))
+                current_block = block if current_block is None else \
+                    np.concatenate((current_block, block))
             buffers = remaining_buffers
             if current_block is not None:
                 np.random.shuffle(current_block)
                 writer.write(current_block)
     return shuffled_train_path
+
+
+def emulate_external_shuffle(
+        num_per_block: int,
+        X: np.ndarray) -> np.ndarray:
+    """Emulate the external shuffling mechanism for in-memory data.
+
+    This mechanisms shuffles the rows of X.
+
+    Args:
+        num_per_block: Number of training samples to load into each block
+        X: matrix of data
+        axis: Axis along which to shuffle X
+
+    Returns:
+        Y: Shuffled matrix of data
+
+    >>> X = np.arange(0, 100).reshape((10, 10))
+    >>> Y1 = emulate_external_shuffle(10, X)
+    >>> Y1.shape
+    (10, 10)
+    >>> Y2 = emulate_external_shuffle(3, X)
+    >>> Y2.shape
+    (10, 10)
+    """
+    n = X.shape[0]
+    blocks = [X[i * num_per_block: (i + 1) * num_per_block]
+              for i in range(ceil(n / num_per_block))]
+
+    for block in blocks:
+        np.random.shuffle(block)
+
+    k, Y = len(blocks), None
+    num_per_slice = max(1, num_per_block // k)
+    for i in range(ceil(num_per_block / num_per_slice)):
+        start, end, result = i * num_per_slice, (i + 1) * num_per_slice, None
+        for block in blocks:
+            result = block[start: end] if result is None else \
+                np.concatenate((result, block[start: end]))
+        np.random.shuffle(result)
+        Y = result if Y is None else np.concatenate((Y, result))
+    return Y

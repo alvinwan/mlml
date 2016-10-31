@@ -36,6 +36,7 @@ Options:
     --step=<step>       Number of iterations between each alpha decay [default: 10000]
     --train=<train>     Path to training data binary [default: data/train]
     --test=<test>       Path to test data [default: data/test]
+    --simulated         Mark memory constraints as simulated. Allows full accuracy tests.
 """
 
 import datetime
@@ -49,7 +50,9 @@ import time
 from utils.blocks import bytes_per_dtype
 from utils.blocks import BlockBuffer
 from utils.shuffle import shuffle_train
+from utils.shuffle import emulate_external_shuffle
 from typing import Tuple
+from typing import Callable
 
 
 TIME = time.time()
@@ -63,11 +66,13 @@ def main() -> None:
     arguments = preprocess_arguments(docopt.docopt(__doc__, version='ssgd 1.0'))
 
     X_test, y_test = read_full_dataset(
+        data_hook=arguments['--data-hook'],
         dtype=arguments['--dtype'],
         path=arguments['--test'],
         shape=(arguments['--nt'], arguments['--d']))
     if arguments['closed']:
         X, Y, model = train_closed(
+            data_hook=arguments['--data-hook'],
             dtype=arguments['--dtype'],
             n=arguments['--n'],
             num_classes=arguments['--k'],
@@ -78,6 +83,7 @@ def main() -> None:
     elif arguments['gd']:
         X, Y, model = train_gd(
             damp=arguments['--damp'],
+            data_hook=arguments['--data-hook'],
             dtype=arguments['--dtype'],
             eta0=arguments['--eta0'],
             iterations=arguments['--iters'],
@@ -94,6 +100,7 @@ def main() -> None:
     elif arguments['sgd']:
         X, Y, model = train_sgd(
             damp=arguments['--damp'],
+            data_hook=arguments['--data-hook'],
             dtype=arguments['--dtype'],
             eta0=arguments['--eta0'],
             epochs=arguments['--epochs'],
@@ -102,6 +109,7 @@ def main() -> None:
             n=arguments['--n'],
             num_classes=arguments['--k'],
             num_features=arguments['--d'],
+            num_per_block=arguments['--num-per-block'],
             one_hot=arguments['--one-hot'],
             reg=arguments['--reg'],
             step=arguments['--step'],
@@ -112,6 +120,7 @@ def main() -> None:
         X, Y, model = train_ssgd(
             algorithm=arguments['--algo'],
             damp=arguments['--damp'],
+            data_hook=arguments['--data-hook'],
             dtype=arguments['--dtype'],
             epochs=arguments['--epochs'],
             eta0=arguments['--eta0'],
@@ -123,6 +132,7 @@ def main() -> None:
             num_per_block=arguments['--num-per-block'],
             one_hot=arguments['--one-hot'],
             reg=arguments['--reg'],
+            simulated=arguments['--simulated'],
             step=arguments['--step'],
             train_path=arguments['--train'],
             X_test=X_test,
@@ -150,6 +160,7 @@ def preprocess_arguments(arguments) -> dict:
         arguments['--k'] = 10
         arguments['--d'] = 784
         arguments['--one-hot'] = 'true'
+        arguments['--data-hook'] = lambda X, Y: (X / 255.0, Y)
     if arguments['spam']:
         arguments['--train'] = 'data/spam-%s-2760-train' % arguments['--dtype']
         arguments['--test'] = 'data/spam-%s-690-test' % arguments['--dtype']
@@ -159,6 +170,7 @@ def preprocess_arguments(arguments) -> dict:
         arguments['--d'] = 55
 
     arguments['--damp'] = float(arguments['--damp'])
+    arguments['--data-hook'] = arguments.get('--data-hook', lambda *args: args)
     arguments['--epochs'] = int(arguments['--epochs'])
     arguments['--eta0'] = float(arguments['--eta0'])
     arguments['--iters'] = int(arguments['--iters'])
@@ -233,6 +245,7 @@ def evaluate_model(
 
 
 def read_full_dataset(
+        data_hook: Callable[[np.ndarray, np.ndarray], Tuple],
         dtype: str,
         path: str,
         shape: Tuple[int, int],
@@ -240,7 +253,7 @@ def read_full_dataset(
         one_hot: bool=False) -> Tuple[np.ndarray, np.ndarray]:
     """Read the dataset in its entirety."""
     data = np.memmap(path, dtype=dtype, mode='r', shape=(shape[0], shape[1] + 1))
-    return block_to_x_y(data, num_classes, one_hot)
+    return data_hook(*block_to_x_y(data, num_classes, one_hot))
 
 
 def timeit(f):
@@ -258,6 +271,7 @@ def timeit(f):
 
 @timeit
 def train_closed(
+        data_hook: Callable[[np.ndarray, np.ndarray], Tuple],
         dtype: str,
         n: int,
         num_classes: int,
@@ -268,6 +282,7 @@ def train_closed(
     """Compute the closed form solution.
 
     Args:
+        data_hook: Processes data for given scenario
         dtype: Data type of numbers in file
         n: Number of training samples
         num_classes: Number of classes
@@ -281,7 +296,8 @@ def train_closed(
         The trained model
     """
     shape = (n, num_features)
-    X, y = read_full_dataset(dtype, train_path, shape, num_classes, one_hot)
+    X, y = read_full_dataset(
+        data_hook, dtype, train_path, shape, num_classes, one_hot)
     XTX, I, XTy = X.T.dot(X), np.identity(num_features), X.T.dot(y)
     return X, y, scipy.linalg.solve(XTX + reg*I, XTy, sym_pos=True)
 
@@ -289,6 +305,7 @@ def train_closed(
 @timeit
 def train_gd(
         damp: float,
+        data_hook: Callable[[np.ndarray, np.ndarray], Tuple],
         dtype: str,
         eta0: float,
         iterations: int,
@@ -306,6 +323,7 @@ def train_gd(
 
     Args:
         damp: Amount to multiply learning rate at each epoch
+        data_hook: Processes data for given scenario
         dtype: Data type of numbers in file
         eta0: Starting learning rate
         iterations: Number of iterations to train
@@ -327,7 +345,8 @@ def train_gd(
     with open(LOG_PATH_FORMAT.format(time=TIME, algo='gd'), 'w') as f:
         f.write(LOG_HEADER)
         shape = (n, num_features)
-        X, Y = read_full_dataset(dtype, train_path, shape, num_classes, one_hot)
+        X, Y = read_full_dataset(
+            data_hook, dtype, train_path, shape, num_classes, one_hot)
         XTX, XTy = X.T.dot(X), X.T.dot(Y)
         w = np.zeros((num_features, num_classes))
         for i in range(iterations):
@@ -350,6 +369,7 @@ def train_gd(
 @timeit
 def train_sgd(
         damp: float,
+        data_hook: Callable[[np.ndarray, np.ndarray], Tuple],
         dtype: str,
         eta0: float,
         epochs: int,
@@ -358,6 +378,7 @@ def train_sgd(
         n: int,
         num_classes: int,
         num_features: int,
+        num_per_block: int,
         one_hot: bool,
         reg: float,
         step: int,
@@ -368,6 +389,7 @@ def train_sgd(
 
     Args:
         damp: Amount to multiply learning rate at each epoch
+        data_hook: Processes data for given scenario
         dtype: Data type of numbers in file
         eta0: Starting learning rate
         epochs: Number of passes over training data
@@ -376,6 +398,7 @@ def train_sgd(
         n: Number of training samples
         num_classes: Number of classes
         num_features: Number of features
+        num_per_block: Number of training samples to load into each block
         one_hot: Whether or not to use one hot encodings
         limited by the size of the buffer and size of each sample
         reg: Regularization constant
@@ -391,10 +414,11 @@ def train_sgd(
         f.write(LOG_HEADER)
         shape, w_delta, index = (n, num_features), 0, 0
         w = np.zeros((num_features, num_classes))
-        X, Y = read_full_dataset(dtype, train_path, shape, num_classes, one_hot)
+        X, Y = read_full_dataset(
+            data_hook, dtype, train_path, shape, num_classes, one_hot)
         for p in range(epochs):
-            indices = list(range(X.shape[0]))
-            np.random.shuffle(indices)
+            indices = np.arange(0, X.shape[0])
+            emulate_external_shuffle(num_per_block, indices)
             for i, random_index in enumerate(indices):
                 index += 1
                 x, y = np.matrix(X[random_index]), np.matrix(Y[random_index])
@@ -420,6 +444,7 @@ def train_sgd(
 def train_ssgd(
         algorithm: str,
         damp: float,
+        data_hook: Callable[[np.ndarray, np.ndarray], Tuple],
         dtype: str,
         epochs: int,
         eta0: float,
@@ -431,6 +456,7 @@ def train_ssgd(
         num_per_block: int,
         one_hot: bool,
         reg: float,
+        simulated: bool,
         step: int,
         train_path: str,
         X_test: np.ndarray,
@@ -443,9 +469,13 @@ def train_ssgd(
     disk. Again using a buffer, we simply read the next chunk of N samples that
     are needed for sgd to run another block.
 
+    If memory constraints are simulated, the below function will load the entire
+    dataset into memory, to evaluate train accuracy.
+
     Args:
         algorithm: Shuffling algorithm to use
         damp: Amount to multiply learning rate at each epoch
+        data_hook: Processes data for given scenario
         dtype: Data type of numbers in file
         epochs: Number of passes over training data
         eta0: Starting learning rate
@@ -466,6 +496,10 @@ def train_ssgd(
     Returns:
         The trained model
     """
+    if simulated:
+        shape = (n, num_features)
+        X_train, Y_train = read_full_dataset(
+            data_hook, dtype, train_path, shape, num_classes, one_hot)
     with open(LOG_PATH_FORMAT.format(time=TIME, algo='ssgd'), 'w') as f:
         f.write(LOG_HEADER)
         w, I = np.zeros((num_features, num_classes)), np.identity(num_features)
@@ -476,6 +510,7 @@ def train_ssgd(
             blocks = BlockBuffer(dtype, n, num_features + 1, num_per_block, shuffled_path)
             deblockify = lambda block: block_to_x_y(block, num_classes, one_hot)
             for X, Y in map(deblockify, blocks):
+                X, Y = data_hook(X, Y)
                 if Y.shape[0] < Y.shape[1]:
                     Y.shape = (X.shape[0], 1)  # hacky
                 for i in range(X.shape[0]):
@@ -487,16 +522,18 @@ def train_ssgd(
                     w -= w_delta
 
                     if log_frequency and index % log_frequency == 0:
+                        if not simulated:
+                            X_train, Y_train = X, Y
                         train_accuracy, test_accuracy = evaluate_model(
-                            w, one_hot, X_test, X, y_test, Y)
+                            w, one_hot, X_test, X_train, y_test, Y_train)
                         f.write(LOG_ENTRY_FORMAT.format(
                             i=index,
                             time=time.time() - TIME,
-                            loss=ridgeloss(X, w, Y, reg),
+                            loss=ridgeloss(X_train, w, Y_train, reg),
                             train_accuracy=train_accuracy,
                             test_accuracy=test_accuracy))
             print('='*30, '\n * SGD : Epoch {p} finished.'.format(p=p))
-    return X, Y, w
+    return X_train, Y_train, w
 
 
 def block_to_x_y(
