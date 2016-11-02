@@ -1,25 +1,52 @@
-# SSGD
-Streaming Stochastic Gradient Descent; save for the shuffling
-mechanism, the majority of this scheme is already outlined in a starter
-task for Professor Benjamin Recht's Lab at UC Berkeley.
+# Memory-Limited Machine Learning (MLML)
 
-# Installation
+This Python3 package offers support for a variety of algorithms on
+memory-limited infrastructure. Specifically, this package addresses
+three memory-limited scenarios:
 
-To use this repository, clone the repository.
+1. Dataset is too large to fit in memory.
+2. Kernel is too large to fit in memory.
+3. Both the dataset and the kernel are too large to fit in memory. (WIP)
 
-    git clone https://github.com/alvinwan/ssgd.git
+created by [Alvin Wan](http://alvinwan.com), with guidance of 
+Vaishaal Shankar under 
+[Professor Benjamin Recht](https://people.eecs.berkeley.edu/~brecht/) 
+at UC Berkeley
 
-Place data in your `data/` folder. Note that these files must be in
-binary. Each file encodes a numpy matrix, where the last column of a
-matrix is the label. The script will by default load from `data/train`
-and `data/test`.
+This package is split into two sub-packages:
+
+1. `mlml.ssgd`: **Streaming Stochastic Gradient Descent** handles 
+datasets too large for memory. Only the necessary portions of 
+the dataset are loaded into memory, and to optimize time needed for
+disk I/O, data is shuffled on disk and then read sequentially.
+
+2. `mlml.kernel`: To handle kernels too large for memory, this package
+has two alternatives. The first is a lazy generator, which generates
+inner products needed for computation and then discards unneeded data
+using an LCU policy. The second is a part-by-part generator for the
+kernel, that then streams the Kernel matrix into memory, as needed.
 
 > Note that this project is backwards-compatible, down to Python 2 but
 static-typing was introduced to comply with PEP 484, Python 3.5.
 
+# Installation
+
+To use the included Python utilities, install from PyPi (coming soon).
+
+    pip install mlml
+
+To use the command-line utility, clone the repository.
+
+    git clone https://github.com/alvinwan/mlml.git
+    
+# Proof of Concept
+
+For now, see [performance.ipynb](https://github.com/alvinwan/mlml/blob/master/demos/performance.ipynb).
+
 # Usage
 
-Run `ssgd.py` at the root of the repository to begin using the utility.
+To use the command-line utility, run `mlml.py` at the root of the 
+repository.
 
     Usage:
     ssgd.py closed --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
