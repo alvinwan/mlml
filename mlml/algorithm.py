@@ -1,18 +1,20 @@
+import time
 from typing import Callable
 from typing import Tuple
 
-from mlml.utils.data import read_full_dataset
-from mlml.utils.data import block_to_x_y
+import numpy as np
+import sklearn
+import sklearn.metrics
+
 from mlml.ssgd.blocks import BlockBuffer
 from mlml.ssgd.shuffle import emulate_external_shuffle
 from mlml.ssgd.shuffle import shuffle_train
-
-import numpy as np
-import scipy
-import sklearn
-import sklearn.metrics
-import time
-
+from mlml.utils.data import block_to_x_y
+from mlml.utils.data import read_dataset
+from mlml.utils.data import de_one_hot
+from mlml.loss import RidgeRegression
+from mlml.model import RegressionModel
+from mlml.model import Model
 
 TIME = time.time()
 LOG_PATH_FORMAT = 'logs/{algo}/run-{time}.csv'
@@ -22,16 +24,6 @@ LOG_ENTRY_FORMAT = '{i},{time},{loss},{train_accuracy},{test_accuracy}\n'
 
 # Temporary functions
 
-def ridgeloss(
-        X: np.ndarray,
-        w: np.ndarray,
-        Y: np.ndarray,
-        reg: float):
-    """Compute ridge regression loss."""
-    A = X.dot(w) - Y
-    return np.asscalar(np.linalg.norm(A) + reg * np.linalg.norm(w))
-
-
 def predict_binary(
         X: np.ndarray,
         model: np.ndarray,
@@ -40,20 +32,8 @@ def predict_binary(
     return np.where(X.dot(model) > threshold, 1, 0)
 
 
-def predict_one_hot(
-        X: np.ndarray,
-        model: np.ndarray) -> np.ndarray:
-    """Predict for one hot vectors."""
-    return de_one_hot(X.dot(model))
-
-
-def de_one_hot(X: np.ndarray):
-    """Convert one hot vectors back into class labels."""
-    return np.argmax(X, axis=1)
-
-
 def evaluate_model(
-        model: np.ndarray,
+        model: Model,
         one_hot: bool,
         X_test: np.ndarray,
         X_train: np.ndarray,
@@ -63,8 +43,8 @@ def evaluate_model(
     if one_hot:
         if y_train is not None and y_train.shape[1] > 1:
             y_train = de_one_hot(y_train)  # hacky
-        y_train_hat = predict_one_hot(X_train, model)
-        y_test_hat = predict_one_hot(X_test, model)
+        y_train_hat = model.predict(X_train)
+        y_test_hat = model.predict(X_test)
     else:
         y_train_hat = predict_binary(X_train, model)
         y_test_hat = predict_binary(X_test, model)
@@ -135,10 +115,10 @@ class ClosedForm(Algorithm):
             The trained model
         """
         shape = (n, num_features)
-        X, y = read_full_dataset(
+        loss = RidgeRegression(reg)
+        X, y = read_dataset(
             data_hook, dtype, train_path, shape, num_classes, one_hot)
-        XTX, I, XTy = X.T.dot(X), np.identity(num_features), X.T.dot(y)
-        return X, y, scipy.linalg.solve(XTX + reg * I, XTy, sym_pos=True)
+        return X, y, loss.closed_form(X, y)
 
 
 class GD(Algorithm):
@@ -210,25 +190,26 @@ class GD(Algorithm):
         with open(LOG_PATH_FORMAT.format(time=TIME, algo='gd'), 'w') as f:
             f.write(LOG_HEADER)
             shape = (n, num_features)
-            X, Y = read_full_dataset(
+            X, Y = read_dataset(
                 data_hook, dtype, train_path, shape, num_classes, one_hot)
-            XTX, XTy = X.T.dot(X), X.T.dot(Y)
-            w = np.zeros((num_features, num_classes))
+            loss = RidgeRegression(reg)
+            loss.pre_hook(X, Y)
+            model = RegressionModel.initialize_zero(num_features, num_classes)
             for i in range(iterations):
-                grad = XTX.dot(w) - XTy + reg * w
+                grad = loss.gradient(model)
                 alpha = eta0 * damp ** (i // step)
-                w -= alpha * grad
+                model.w -= alpha * grad
 
                 if log_frequency and i % log_frequency == 0:
                     train_accuracy, test_accuracy = evaluate_model(
-                        w, one_hot, X_test, X, y_test, Y)
+                        model, one_hot, X_test, X, y_test, Y)
                     f.write(LOG_ENTRY_FORMAT.format(
                         i=i,
                         time=time.time() - TIME,
-                        loss=ridgeloss(X, w, Y, reg),
+                        loss=loss(model, X, Y),
                         train_accuracy=train_accuracy,
                         test_accuracy=test_accuracy))
-        return X, Y, w
+        return X, Y, model.w
 
 
 class SGD(Algorithm):
@@ -306,32 +287,33 @@ class SGD(Algorithm):
         with open(LOG_PATH_FORMAT.format(time=TIME, algo='sgd'), 'w') as f:
             f.write(LOG_HEADER)
             shape, w_delta, index = (n, num_features), 0, 0
-            w = np.zeros((num_features, num_classes))
-            X, Y = read_full_dataset(
+            X, Y = read_dataset(
                 data_hook, dtype, train_path, shape, num_classes, one_hot)
+            loss = RidgeRegression(reg)
+            model = RegressionModel.initialize_zero(num_features, num_classes)
             for p in range(epochs):
                 indices = np.arange(0, X.shape[0])
                 emulate_external_shuffle(num_per_block, indices)
                 for i, random_index in enumerate(indices):
                     index += 1
-                    x, y = np.matrix(X[random_index]), np.matrix(
-                        Y[random_index])
-                    grad = x.T.dot(x.dot(w) - y) + reg * w
+                    x = np.matrix(X[random_index])
+                    y = np.matrix(Y[random_index])
+                    grad = loss.gradient(model, x, y)
                     alpha = eta0 * damp ** ((n * p + i) // step)
                     w_delta = alpha * grad + momentum * w_delta
-                    w -= w_delta
+                    model.w -= w_delta
 
                     if log_frequency and index % log_frequency == 0:
                         train_accuracy, test_accuracy = evaluate_model(
-                            w, one_hot, X_test, X, y_test, Y)
+                            model, one_hot, X_test, X, y_test, Y)
                         f.write(LOG_ENTRY_FORMAT.format(
                             i=index,
                             time=time.time() - TIME,
-                            loss=ridgeloss(X, w, Y, reg),
+                            loss=loss(model, X, Y),
                             train_accuracy=train_accuracy,
                             test_accuracy=test_accuracy))
                 print('=' * 30, '\n * SGD : Epoch {p} finished.'.format(p=p))
-        return X, Y, w
+        return X, Y, model.w
 
 
 class SSGD(Algorithm):
@@ -422,12 +404,12 @@ class SSGD(Algorithm):
         """
         if simulated:
             shape = (n, num_features)
-            X_train, Y_train = read_full_dataset(
+            X_train, Y_train = read_dataset(
                 data_hook, dtype, train_path, shape, num_classes, one_hot)
         with open(LOG_PATH_FORMAT.format(time=TIME, algo='ssgd'), 'w') as f:
             f.write(LOG_HEADER)
-            w, I = np.zeros((num_features, num_classes)), np.identity(
-                num_features)
+            loss = RidgeRegression(reg)
+            model = RegressionModel.initialize_zero(num_features, num_classes)
             w_delta = index = 0
             for p in range(epochs):
                 shuffled_path = shuffle_train(
@@ -444,20 +426,20 @@ class SSGD(Algorithm):
                     for i in range(X.shape[0]):
                         index += 1
                         x, y = np.matrix(X[i]), np.matrix(Y[i])
-                        grad = x.T.dot(x.dot(w) - y) + reg * w
+                        grad = loss.gradient(model, x, y)
                         alpha = eta0 * damp ** ((n * p + i) // step)
                         w_delta = alpha * grad + momentum * w_delta
-                        w -= w_delta
+                        model.w -= w_delta
 
                         if log_frequency and index % log_frequency == 0:
                             if not simulated:
                                 X_train, Y_train = X, Y
                             train_accuracy, test_accuracy = evaluate_model(
-                                w, one_hot, X_test, X_train, y_test, Y_train)
+                                model, one_hot, X_test, X_train, y_test, Y_train)
                             f.write(LOG_ENTRY_FORMAT.format(
                                 i=index,
                                 time=time.time() - TIME,
-                                loss=ridgeloss(X_train, w, Y_train, reg),
+                                loss=loss(model, X_train, Y_train),
                                 train_accuracy=train_accuracy,
                                 test_accuracy=test_accuracy))
                 print('=' * 30, '\n * SGD : Epoch {p} finished.'.format(p=p))

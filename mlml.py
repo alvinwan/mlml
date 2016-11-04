@@ -13,7 +13,7 @@ Usage:
     mlml.py gd --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
     mlml.py sgd --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
     mlml.py ssgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
-    mlml.py hssgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
+    mlml.py hsgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
     mlml.py (closed|gd|sgd|ssgd) (mnist|spam|cifar-10) [options]
 
 Options:
@@ -41,21 +41,20 @@ Options:
 
 import docopt
 
-from mlml.algorithms import evaluate_model
-from mlml.algorithms import ClosedForm
-from mlml.algorithms import GD
-from mlml.algorithms import SGD
-from mlml.algorithms import SSGD
-
+from mlml.algorithm import ClosedForm
+from mlml.algorithm import GD
+from mlml.algorithm import SGD
+from mlml.algorithm import SSGD
+from mlml.algorithm import evaluate_model
 from mlml.ssgd.blocks import bytes_per_dtype
-from mlml.utils.data import read_full_dataset
+from mlml.utils.data import read_dataset
 
 
 def main() -> None:
     """Load data and launch training, then evaluate accuracy."""
     arguments = preprocess_arguments(docopt.docopt(__doc__, version='ssgd 1.0'))
 
-    X_test, y_test = read_full_dataset(
+    X_test, y_test = read_dataset(
         data_hook=arguments['--data-hook'],
         dtype=arguments['--dtype'],
         path=arguments['--test'],
@@ -108,7 +107,6 @@ def preprocess_arguments(arguments) -> dict:
         arguments['--k'] = 10
         arguments['--d'] = 3072
         arguments['--one-hot'] = 'true'
-
 
     arguments['--damp'] = float(arguments['--damp'])
     arguments['--data-hook'] = arguments.get('--data-hook', lambda *args: args)
