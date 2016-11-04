@@ -39,8 +39,7 @@ import docopt
 from mlml.algorithm import ClosedForm
 from mlml.algorithm import GD
 from mlml.algorithm import SGD
-from mlml.algorithm import SSGD
-from mlml.utils.data import de_one_hot
+from mlml.ssgd.algorithm import SSGD
 from mlml.ssgd.blocks import bytes_per_dtype
 from mlml.utils.data import read_dataset
 
@@ -57,19 +56,18 @@ def main() -> None:
         path=arguments['--test'],
         shape=(arguments['--nt'], arguments['--d']))
     if arguments['closed']:
-        X, Y, model = ClosedForm.from_arguments(arguments, test.X, test.labels)
+        train, model = ClosedForm.from_arguments(arguments, test.X, test.labels)
     elif arguments['gd']:
-        X, Y, model = GD.from_arguments(arguments, test.X, test.labels)
+        train, model = GD.from_arguments(arguments, test.X, test.labels)
     elif arguments['sgd']:
-        X, Y, model = SGD.from_arguments(arguments, test.X, test.labels)
+        train, model = SGD.from_arguments(arguments, test.X, test.labels)
     elif arguments['ssgd']:
-        X, Y, model = SSGD.from_arguments(arguments, test.X, test.labels)
+        train, model = SSGD.from_arguments(arguments, test.X, test.labels)
     elif arguments['hsgd']:
         raise NotImplementedError
     else:
         raise UserWarning('Invalid algorithm specified.')
-    labels = de_one_hot(Y)
-    train_accuracy = model.accuracy(X, labels)
+    train_accuracy = model.accuracy(train.X, train.labels)
     test_accuracy = model.accuracy(test.X, test.labels)
     print('Train:', train_accuracy, 'Test:', test_accuracy)
 
