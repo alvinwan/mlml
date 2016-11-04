@@ -3,15 +3,16 @@ from typing import Callable
 from typing import Tuple
 
 import numpy as np
-import sklearn
-import sklearn.metrics
 
 from mlml.ssgd.blocks import BlockBuffer
 from mlml.ssgd.shuffle import emulate_external_shuffle
 from mlml.ssgd.shuffle import shuffle_train
-from mlml.utils.data import block_to_x_y
+from mlml.utils.data import block_x_labels
 from mlml.utils.data import read_dataset
-from mlml.utils.data import de_one_hot
+from mlml.utils.data import to_one_hot
+from mlml.logging import Logger
+from mlml.logging import StandardLogger
+from mlml.loss import Loss
 from mlml.loss import RidgeRegression
 from mlml.model import RegressionModel
 from mlml.model import Model
@@ -20,38 +21,6 @@ TIME = time.time()
 LOG_PATH_FORMAT = 'logs/{algo}/run-{time}.csv'
 LOG_HEADER = 'i,Time,Loss,Train Accuracy,Test Accuracy\n'
 LOG_ENTRY_FORMAT = '{i},{time},{loss},{train_accuracy},{test_accuracy}\n'
-
-
-# Temporary functions
-
-def predict_binary(
-        X: np.ndarray,
-        model: np.ndarray,
-        threshold: float=0.5) -> np.ndarray:
-    """Predict for binary classification."""
-    return np.where(X.dot(model) > threshold, 1, 0)
-
-
-def evaluate_model(
-        model: Model,
-        one_hot: bool,
-        X_test: np.ndarray,
-        X_train: np.ndarray,
-        y_test: np.ndarray,
-        y_train: np.ndarray) -> Tuple[float, float]:
-    """Evaluate the model's accuracy."""
-    if one_hot:
-        if y_train is not None and y_train.shape[1] > 1:
-            y_train = de_one_hot(y_train)  # hacky
-        y_train_hat = model.predict(X_train)
-        y_test_hat = model.predict(X_test)
-    else:
-        y_train_hat = predict_binary(X_train, model)
-        y_test_hat = predict_binary(X_test, model)
-    train_accuracy = sklearn.metrics.accuracy_score(y_train, y_train_hat)
-    test_accuracy = sklearn.metrics.accuracy_score(y_test, y_test_hat)
-    print('Train Accuracy:', train_accuracy, 'Test Accuracy:', test_accuracy)
-    return train_accuracy, test_accuracy
 
 
 class Algorithm:
@@ -81,43 +50,42 @@ class ClosedForm(Algorithm):
         return ClosedForm().train(
             data_hook=arguments['--data-hook'],
             dtype=arguments['--dtype'],
+            loss=RidgeRegression(arguments['--reg']),
             n=arguments['--n'],
             num_classes=arguments['--k'],
             num_features=arguments['--d'],
             one_hot=arguments['--one-hot'],
-            reg=arguments['--reg'],
             train_path=arguments['--train'])
 
     def train(
             self,
             data_hook: Callable[[np.ndarray, np.ndarray], Tuple],
             dtype: str,
+            loss: Loss,
             n: int,
             num_classes: int,
             num_features: int,
             one_hot: bool,
-            reg: float,
             train_path: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Compute the closed form solution.
 
         Args:
             data_hook: Processes data for given scenario
             dtype: Data type of numbers in file
+            loss: Loss function
             n: Number of training samples
             num_classes: Number of classes
             num_features: Number of features
             limited by the size of the buffer and size of each sample
             one_hot: Whether or not to use one hot encodings
-            reg: Regularization constant
             train_path: Path to the training file (binary)
 
         Returns:
             The trained model
         """
         shape = (n, num_features)
-        loss = RidgeRegression(reg)
-        X, y = read_dataset(
-            data_hook, dtype, train_path, shape, num_classes, one_hot)
+        X, labels = read_dataset(data_hook, dtype, train_path, shape)
+        y = to_one_hot(num_classes, labels) if one_hot else labels
         return X, y, loss.closed_form(X, y)
 
 
@@ -136,16 +104,17 @@ class GD(Algorithm):
             dtype=arguments['--dtype'],
             eta0=arguments['--eta0'],
             iterations=arguments['--iters'],
+            loss=RidgeRegression(arguments['--reg']),
+            logger=StandardLogger(),
             log_frequency=arguments['--logfreq'],
             n=arguments['--n'],
             num_classes=arguments['--k'],
             num_features=arguments['--d'],
             one_hot=arguments['--one-hot'],
-            reg=arguments['--reg'],
             step=arguments['--step'],
             train_path=arguments['--train'],
             X_test=X_test,
-            y_test=y_test)
+            labels_test=y_test)
 
     def train(
             self,
@@ -154,16 +123,17 @@ class GD(Algorithm):
             dtype: str,
             eta0: float,
             iterations: int,
+            logger: Logger,
+            loss: Loss,
             log_frequency: int,
             n: int,
             num_features: int,
             num_classes: int,
             one_hot: bool,
-            reg: float,
             step: int,
             train_path: str,
             X_test: np.ndarray,
-            y_test: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+            labels_test: np.ndarray) -> Tuple[np.ndarray, np.ndarray, Model]:
         """Train using gradient descent.
 
         Args:
@@ -172,17 +142,18 @@ class GD(Algorithm):
             dtype: Data type of numbers in file
             eta0: Starting learning rate
             iterations: Number of iterations to train
+            logger: The logging utility
             log_frequency: Number of iterations between log entries
+            loss: Loss function
             n: Number of training samples
             num_classes: Number of classes
             num_features: Number of features
             one_hot: Whether or not to train with one hot encodings
             limited by the size of the buffer and size of each sample
-            reg: Regularization constant
             step: Number of iterations between each alpha decay
             train_path: Path to the training file (binary)
             X_test: Test input data
-            y_test: Test output data
+            labels_test: Test output data
 
         Returns:
             The trained model
@@ -190,26 +161,17 @@ class GD(Algorithm):
         with open(LOG_PATH_FORMAT.format(time=TIME, algo='gd'), 'w') as f:
             f.write(LOG_HEADER)
             shape = (n, num_features)
-            X, Y = read_dataset(
-                data_hook, dtype, train_path, shape, num_classes, one_hot)
-            loss = RidgeRegression(reg)
+            X, labels = read_dataset(data_hook, dtype, train_path, shape)
+            Y = to_one_hot(num_classes, labels) if one_hot else labels
             loss.pre_hook(X, Y)
             model = RegressionModel.initialize_zero(num_features, num_classes)
             for i in range(iterations):
                 grad = loss.gradient(model)
                 alpha = eta0 * damp ** (i // step)
                 model.w -= alpha * grad
-
-                if log_frequency and i % log_frequency == 0:
-                    train_accuracy, test_accuracy = evaluate_model(
-                        model, one_hot, X_test, X, y_test, Y)
-                    f.write(LOG_ENTRY_FORMAT.format(
-                        i=i,
-                        time=time.time() - TIME,
-                        loss=loss(model, X, Y),
-                        train_accuracy=train_accuracy,
-                        test_accuracy=test_accuracy))
-        return X, Y, model.w
+                logger.iteration(i, f, log_frequency, loss, model, X, Y,
+                                 labels, X_test, labels_test)
+        return X, Y, model
 
 
 class SGD(Algorithm):
@@ -227,18 +189,19 @@ class SGD(Algorithm):
             dtype=arguments['--dtype'],
             eta0=arguments['--eta0'],
             epochs=arguments['--epochs'],
+            logger=StandardLogger(),
             log_frequency=arguments['--logfreq'],
+            loss=RidgeRegression(arguments['--reg']),
             momentum=arguments['--momentum'],
             n=arguments['--n'],
             num_classes=arguments['--k'],
             num_features=arguments['--d'],
             num_per_block=arguments['--num-per-block'],
             one_hot=arguments['--one-hot'],
-            reg=arguments['--reg'],
             step=arguments['--step'],
             train_path=arguments['--train'],
             X_test=X_test,
-            y_test=y_test)
+            labels_test=y_test)
 
     def train(
             self,
@@ -247,18 +210,19 @@ class SGD(Algorithm):
             dtype: str,
             eta0: float,
             epochs: int,
+            logger: Logger,
             log_frequency: int,
+            loss: Loss,
             momentum: float,
             n: int,
             num_classes: int,
             num_features: int,
             num_per_block: int,
             one_hot: bool,
-            reg: float,
             step: int,
             train_path: str,
             X_test: np.ndarray,
-            y_test: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+            labels_test: np.ndarray) -> Tuple[np.ndarray, np.ndarray, Model]:
         """Train using stochastic gradient descent.
 
         Args:
@@ -267,7 +231,9 @@ class SGD(Algorithm):
             dtype: Data type of numbers in file
             eta0: Starting learning rate
             epochs: Number of passes over training data
+            logger: The logging utility
             log_frequency: Number of iterations between log entries
+            loss: Loss function
             momentum: Momentum to apply to changes in w
             n: Number of training samples
             num_classes: Number of classes
@@ -275,45 +241,33 @@ class SGD(Algorithm):
             num_per_block: Number of training samples to load into each block
             one_hot: Whether or not to use one hot encodings
             limited by the size of the buffer and size of each sample
-            reg: Regularization constant
             step: Number of iterations between each alpha decay
             train_path: Path to the training file (binary)
             X_test: Test input data
-            y_test: Test output data
+            labels_test: Test output data
 
         Returns:
             The trained model
         """
         with open(LOG_PATH_FORMAT.format(time=TIME, algo='sgd'), 'w') as f:
             f.write(LOG_HEADER)
-            shape, w_delta, index = (n, num_features), 0, 0
-            X, Y = read_dataset(
-                data_hook, dtype, train_path, shape, num_classes, one_hot)
-            loss = RidgeRegression(reg)
+            shape, w_delta, iteration = (n, num_features), 0, 0
+            X, labels = read_dataset(data_hook, dtype, train_path, shape)
+            Y = to_one_hot(num_classes, labels) if one_hot else labels
             model = RegressionModel.initialize_zero(num_features, num_classes)
             for p in range(epochs):
                 indices = np.arange(0, X.shape[0])
                 emulate_external_shuffle(num_per_block, indices)
-                for i, random_index in enumerate(indices):
-                    index += 1
-                    x = np.matrix(X[random_index])
-                    y = np.matrix(Y[random_index])
-                    grad = loss.gradient(model, x, y)
-                    alpha = eta0 * damp ** ((n * p + i) // step)
+                for i, index in enumerate(indices):
+                    grad = loss.gradient(model, X[index], Y[index])
+                    alpha = eta0 * damp ** (iteration // step)
                     w_delta = alpha * grad + momentum * w_delta
                     model.w -= w_delta
-
-                    if log_frequency and index % log_frequency == 0:
-                        train_accuracy, test_accuracy = evaluate_model(
-                            model, one_hot, X_test, X, y_test, Y)
-                        f.write(LOG_ENTRY_FORMAT.format(
-                            i=index,
-                            time=time.time() - TIME,
-                            loss=loss(model, X, Y),
-                            train_accuracy=train_accuracy,
-                            test_accuracy=test_accuracy))
-                print('=' * 30, '\n * SGD : Epoch {p} finished.'.format(p=p))
-        return X, Y, model.w
+                    logger.iteration(iteration, f, log_frequency, loss, model,
+                                     X, Y, labels, X_test, labels_test)
+                    iteration += 1
+                logger.epoch(p)
+        return X, Y, model
 
 
 class SSGD(Algorithm):
@@ -332,19 +286,20 @@ class SSGD(Algorithm):
             dtype=arguments['--dtype'],
             epochs=arguments['--epochs'],
             eta0=arguments['--eta0'],
+            logger=StandardLogger(),
             log_frequency=arguments['--logfreq'],
+            loss=RidgeRegression(arguments['--reg']),
             momentum=arguments['--momentum'],
             n=arguments['--n'],
             num_classes=arguments['--k'],
             num_features=arguments['--d'],
             num_per_block=arguments['--num-per-block'],
             one_hot=arguments['--one-hot'],
-            reg=arguments['--reg'],
             simulated=arguments['--simulated'],
             step=arguments['--step'],
             train_path=arguments['--train'],
             X_test=X_test,
-            y_test=y_test)
+            labels_test=y_test)
 
     def train(
             self,
@@ -354,19 +309,20 @@ class SSGD(Algorithm):
             dtype: str,
             epochs: int,
             eta0: float,
+            logger: Logger,
             log_frequency: int,
+            loss: Loss,
             momentum: float,
             n: int,
             num_classes: int,
             num_features: int,
             num_per_block: int,
             one_hot: bool,
-            reg: float,
             simulated: bool,
             step: int,
             train_path: str,
             X_test: np.ndarray,
-            y_test: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+            labels_test: np.ndarray) -> Tuple[np.ndarray, np.ndarray, Model]:
         """Train using streaming stochastic gradient descent.
 
         The shuffling algorithms are described and discussed in shuffle.py.
@@ -385,7 +341,9 @@ class SSGD(Algorithm):
             dtype: Data type of numbers in file
             epochs: Number of passes over training data
             eta0: Starting learning rate
+            logger: The logging utility
             log_frequency: Number of iterations between log entries
+            loss: Loss function
             momentum: Momentum to apply to changes in w
             n: Number of training samples
             num_classes: Number of classes
@@ -393,54 +351,50 @@ class SSGD(Algorithm):
             num_per_block: Number of training samples to load into each block
             one_hot: Whether or not to use one hot encodings
             limited by the size of the buffer and size of each sample
-            reg: Regularization constant
             step: Number of iterations between each alpha decay
             train_path: Path to the training file (binary)
             X_test: Test input data
-            y_test: Test output data
+            labels_test: Test output data
 
         Returns:
             The trained model
         """
         if simulated:
             shape = (n, num_features)
-            X_train, Y_train = read_dataset(
-                data_hook, dtype, train_path, shape, num_classes, one_hot)
+            X_train, labels_train = read_dataset(data_hook, dtype, train_path, shape)
+            Y_train = to_one_hot(num_classes, labels_train) if one_hot else labels_train
         with open(LOG_PATH_FORMAT.format(time=TIME, algo='ssgd'), 'w') as f:
             f.write(LOG_HEADER)
-            loss = RidgeRegression(reg)
             model = RegressionModel.initialize_zero(num_features, num_classes)
-            w_delta = index = 0
+            w_delta = iteration = 0
             for p in range(epochs):
                 shuffled_path = shuffle_train(
                     algorithm, dtype, n, num_per_block, num_features,
                     train_path)
                 blocks = BlockBuffer(dtype, n, num_features + 1, num_per_block,
                                      shuffled_path)
-                deblockify = lambda block: block_to_x_y(block, num_classes,
-                                                        one_hot)
-                for X, Y in map(deblockify, blocks):
-                    X, Y = data_hook(X, Y)
-                    if Y.shape[0] < Y.shape[1]:
-                        Y.shape = (X.shape[0], 1)  # hacky
+                for X, labels in map(block_x_labels, blocks):
+                    X, labels = data_hook(X, labels)
+                    Y = to_one_hot(num_classes, labels) if one_hot else labels
                     for i in range(X.shape[0]):
-                        index += 1
-                        x, y = np.matrix(X[i]), np.matrix(Y[i])
-                        grad = loss.gradient(model, x, y)
-                        alpha = eta0 * damp ** ((n * p + i) // step)
+                        grad = loss.gradient(model, X[i], Y[i])
+                        alpha = eta0 * damp ** (iteration // step)
                         w_delta = alpha * grad + momentum * w_delta
                         model.w -= w_delta
 
-                        if log_frequency and index % log_frequency == 0:
-                            if not simulated:
-                                X_train, Y_train = X, Y
-                            train_accuracy, test_accuracy = evaluate_model(
-                                model, one_hot, X_test, X_train, y_test, Y_train)
-                            f.write(LOG_ENTRY_FORMAT.format(
-                                i=index,
-                                time=time.time() - TIME,
-                                loss=loss(model, X_train, Y_train),
-                                train_accuracy=train_accuracy,
-                                test_accuracy=test_accuracy))
-                print('=' * 30, '\n * SGD : Epoch {p} finished.'.format(p=p))
-        return X_train, Y_train, w
+                        if simulated:
+                            X, Y, labels = X_train, Y_train, labels_train
+                        logger.iteration(
+                            iteration,
+                            f,
+                            log_frequency,
+                            loss,
+                            model,
+                            X,
+                            Y,
+                            labels,
+                            X_test,
+                            labels_test)
+                        iteration += 1
+                logger.epoch(p)
+        return X_train, Y_train, model

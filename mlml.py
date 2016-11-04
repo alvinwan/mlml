@@ -45,7 +45,7 @@ from mlml.algorithm import ClosedForm
 from mlml.algorithm import GD
 from mlml.algorithm import SGD
 from mlml.algorithm import SSGD
-from mlml.algorithm import evaluate_model
+from mlml.utils.data import de_one_hot
 from mlml.ssgd.blocks import bytes_per_dtype
 from mlml.utils.data import read_dataset
 
@@ -54,24 +54,27 @@ def main() -> None:
     """Load data and launch training, then evaluate accuracy."""
     arguments = preprocess_arguments(docopt.docopt(__doc__, version='ssgd 1.0'))
 
-    X_test, y_test = read_dataset(
+    X_test, labels_test = read_dataset(
         data_hook=arguments['--data-hook'],
         dtype=arguments['--dtype'],
         path=arguments['--test'],
         shape=(arguments['--nt'], arguments['--d']))
     if arguments['closed']:
-        X, Y, model = ClosedForm.from_arguments(arguments, X_test, y_test)
+        X, Y, model = ClosedForm.from_arguments(arguments, X_test, labels_test)
     elif arguments['gd']:
-        X, Y, model = GD.from_arguments(arguments, X_test, y_test)
+        X, Y, model = GD.from_arguments(arguments, X_test, labels_test)
     elif arguments['sgd']:
-        X, Y, model = SGD.from_arguments(arguments, X_test, y_test)
+        X, Y, model = SGD.from_arguments(arguments, X_test, labels_test)
     elif arguments['ssgd']:
-        X, Y, model = SSGD.from_arguments(arguments, X_test, y_test)
+        X, Y, model = SSGD.from_arguments(arguments, X_test, labels_test)
     elif arguments['hsgd']:
         raise NotImplementedError
     else:
         raise UserWarning('Invalid algorithm specified.')
-    evaluate_model(model, arguments['--one-hot'], X_test, X, y_test, Y)
+    labels = de_one_hot(Y)
+    train_accuracy = model.accuracy(X, labels)
+    test_accuracy = model.accuracy(X_test, labels_test)
+    print('Train:', train_accuracy, 'Test:', test_accuracy)
 
 
 def preprocess_arguments(arguments) -> dict:

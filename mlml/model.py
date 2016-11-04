@@ -1,6 +1,8 @@
 """Common models."""
 
 import numpy as np
+import sklearn.metrics
+
 from mlml.utils.data import de_one_hot
 
 
@@ -13,6 +15,9 @@ class Model:
 
     def predict(self, X: np.ndarray):
         raise NotImplementedError
+
+    def accuracy(self, X: np.ndarray, labels: np.ndarray):
+        return sklearn.metrics.accuracy_score(self.predict(X), labels)
 
 
 class RegressionModel(Model):

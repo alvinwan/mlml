@@ -21,7 +21,11 @@ class Loss:
         """Run closed form solution and return trained model."""
         raise NotImplementedError
 
-    def gradient(self, model: Model, X: np.ndarray, Y: np.ndarray) -> np.ndarray:
+    def gradient(
+            self,
+            model: Model,
+            X: np.ndarray=None,
+            Y: np.ndarray=None) -> np.ndarray:
         """Compute gradient of loss with respect to parameters."""
         raise NotImplementedError
 
@@ -81,6 +85,7 @@ class RidgeRegression(Loss):
         """
         if X is None or Y is None:
             return self.XTX.dot(model.w) - self.XTy + self.reg * model.w
+        X, Y = np.matrix(X), np.matrix(Y)
         return X.T.dot(X.dot(model.w) - Y) + self.reg * model.w
 
     def pre_hook(self, X: np.ndarray, Y: np.ndarray) -> None:
