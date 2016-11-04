@@ -84,9 +84,9 @@ class ClosedForm(Algorithm):
             The trained model
         """
         shape = (n, num_features)
-        X, labels = read_dataset(data_hook, dtype, train_path, shape)
-        y = to_one_hot(num_classes, labels) if one_hot else labels
-        return X, y, loss.closed_form(X, y)
+        data = read_dataset(
+            data_hook, dtype, num_classes, one_hot, train_path, shape)
+        return data.X, data.Y, loss.closed_form(data.X, data.Y)
 
 
 class GD(Algorithm):
@@ -158,20 +158,22 @@ class GD(Algorithm):
         Returns:
             The trained model
         """
-        with open(LOG_PATH_FORMAT.format(time=TIME, algo='gd'), 'w') as f:
-            f.write(LOG_HEADER)
-            shape = (n, num_features)
-            X, labels = read_dataset(data_hook, dtype, train_path, shape)
-            Y = to_one_hot(num_classes, labels) if one_hot else labels
-            loss.pre_hook(X, Y)
-            model = RegressionModel.initialize_zero(num_features, num_classes)
-            for i in range(iterations):
-                grad = loss.gradient(model)
-                alpha = eta0 * damp ** (i // step)
-                model.w -= alpha * grad
-                logger.iteration(i, f, log_frequency, loss, model, X, Y,
-                                 labels, X_test, labels_test)
-        return X, Y, model
+        f = open(LOG_PATH_FORMAT.format(time=TIME, algo='gd'), 'w')
+        f.write(LOG_HEADER)
+        shape = (n, num_features)
+        data = read_dataset(
+            data_hook, dtype, num_classes, one_hot, train_path, shape)
+        loss.pre_hook(data.X, data.Y)
+        model = RegressionModel.initialize_zero(num_features, num_classes)
+        for i in range(iterations):
+            grad = loss.gradient(model)
+            alpha = eta0 * damp ** (i // step)
+            model.w -= alpha * grad
+            logger.iteration(
+                i, f, log_frequency, loss, model, data.X, data.Y,
+                data.labels, X_test, labels_test)
+        f.close()
+        return data.X, data.Y, model
 
 
 class SGD(Algorithm):
@@ -249,25 +251,27 @@ class SGD(Algorithm):
         Returns:
             The trained model
         """
-        with open(LOG_PATH_FORMAT.format(time=TIME, algo='sgd'), 'w') as f:
-            f.write(LOG_HEADER)
-            shape, w_delta, iteration = (n, num_features), 0, 0
-            X, labels = read_dataset(data_hook, dtype, train_path, shape)
-            Y = to_one_hot(num_classes, labels) if one_hot else labels
-            model = RegressionModel.initialize_zero(num_features, num_classes)
-            for p in range(epochs):
-                indices = np.arange(0, X.shape[0])
-                emulate_external_shuffle(num_per_block, indices)
-                for i, index in enumerate(indices):
-                    grad = loss.gradient(model, X[index], Y[index])
-                    alpha = eta0 * damp ** (iteration // step)
-                    w_delta = alpha * grad + momentum * w_delta
-                    model.w -= w_delta
-                    logger.iteration(iteration, f, log_frequency, loss, model,
-                                     X, Y, labels, X_test, labels_test)
-                    iteration += 1
-                logger.epoch(p)
-        return X, Y, model
+        f = open(LOG_PATH_FORMAT.format(time=TIME, algo='sgd'), 'w')
+        f.write(LOG_HEADER)
+        shape, w_delta, iteration = (n, num_features), 0, 0
+        data = read_dataset(
+            data_hook, dtype, num_classes, one_hot, train_path, shape)
+        model = RegressionModel.initialize_zero(num_features, num_classes)
+        for p in range(epochs):
+            indices = np.arange(0, data.X.shape[0])
+            emulate_external_shuffle(num_per_block, indices)
+            for i, index in enumerate(indices):
+                grad = loss.gradient(model, data.X[index], data.Y[index])
+                alpha = eta0 * damp ** (iteration // step)
+                w_delta = alpha * grad + momentum * w_delta
+                model.w -= w_delta
+                logger.iteration(
+                    iteration, f, log_frequency, loss, model, data.X,
+                    data.Y, data.labels, X_test, labels_test)
+                iteration += 1
+            logger.epoch(p)
+        f.close()
+        return data.X, data.Y, model
 
 
 class SSGD(Algorithm):
@@ -361,40 +365,35 @@ class SSGD(Algorithm):
         """
         if simulated:
             shape = (n, num_features)
-            X_train, labels_train = read_dataset(data_hook, dtype, train_path, shape)
-            Y_train = to_one_hot(num_classes, labels_train) if one_hot else labels_train
-        with open(LOG_PATH_FORMAT.format(time=TIME, algo='ssgd'), 'w') as f:
-            f.write(LOG_HEADER)
-            model = RegressionModel.initialize_zero(num_features, num_classes)
-            w_delta = iteration = 0
-            for p in range(epochs):
-                shuffled_path = shuffle_train(
-                    algorithm, dtype, n, num_per_block, num_features,
-                    train_path)
-                blocks = BlockBuffer(dtype, n, num_features + 1, num_per_block,
-                                     shuffled_path)
-                for X, labels in map(block_x_labels, blocks):
-                    X, labels = data_hook(X, labels)
-                    Y = to_one_hot(num_classes, labels) if one_hot else labels
-                    for i in range(X.shape[0]):
-                        grad = loss.gradient(model, X[i], Y[i])
-                        alpha = eta0 * damp ** (iteration // step)
-                        w_delta = alpha * grad + momentum * w_delta
-                        model.w -= w_delta
+            data = read_dataset(
+                data_hook, dtype, num_classes, one_hot, train_path, shape)
+        f = open(LOG_PATH_FORMAT.format(time=TIME, algo='ssgd'), 'w')
+        f.write(LOG_HEADER)
+        model = RegressionModel.initialize_zero(num_features, num_classes)
+        w_delta = iteration = 0
+        for p in range(epochs):
+            shuffled_path = shuffle_train(
+                algorithm, dtype, n, num_per_block, num_features, train_path)
+            blocks = BlockBuffer(
+                dtype, n, num_features + 1, num_per_block, shuffled_path)
+            for X, labels in map(block_x_labels, blocks):
+                X, labels = data_hook(X, labels)
+                Y = to_one_hot(num_classes, labels) if one_hot else labels
+                for i in range(X.shape[0]):
+                    grad = loss.gradient(model, X[i], Y[i])
+                    alpha = eta0 * damp ** (iteration // step)
+                    w_delta = alpha * grad + momentum * w_delta
+                    model.w -= w_delta
 
-                        if simulated:
-                            X, Y, labels = X_train, Y_train, labels_train
+                    if simulated:
                         logger.iteration(
-                            iteration,
-                            f,
-                            log_frequency,
-                            loss,
-                            model,
-                            X,
-                            Y,
-                            labels,
-                            X_test,
-                            labels_test)
-                        iteration += 1
-                logger.epoch(p)
-        return X_train, Y_train, model
+                            iteration, f, log_frequency, loss, model, data.X,
+                            data.Y, data.labels, X_test, labels_test)
+                    else:
+                        logger.iteration(
+                            iteration, f, log_frequency, loss, model, X, Y,
+                            labels, X_test, labels_test)
+                    iteration += 1
+            logger.epoch(p)
+        f.close()
+        return data.X, data.Y, model

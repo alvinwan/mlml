@@ -1,12 +1,7 @@
-"""Streaming Stochastic Gradient Descent implementation, starter task.
+"""Memory-Limited Machine Learning Command-Line Utility
 
-In the following, we assume the objective function is L2-regularized least
-squares, otherwise known as Ridge Regression.
-
-    (1/2) X^T ||Xw - y||_2^2 + (1/2)reg||w||_2^2
-
-Additionally, we assume all outputs are class labels. Each binary includes both
-input and outputs, where the outputs form the last column of each matrix.
+This utility allows you try several algorithms on popular datasets, to compare
+with memory-limited equivalents.
 
 Usage:
     mlml.py closed --n=<n> --d=<d> --train=<train> --test=<test> --nt=<nt> [options]
@@ -52,28 +47,30 @@ from mlml.utils.data import read_dataset
 
 def main() -> None:
     """Load data and launch training, then evaluate accuracy."""
-    arguments = preprocess_arguments(docopt.docopt(__doc__, version='ssgd 1.0'))
+    arguments = preprocess_arguments(docopt.docopt(__doc__, version='MLML 1.0'))
 
-    X_test, labels_test = read_dataset(
+    test = read_dataset(
         data_hook=arguments['--data-hook'],
         dtype=arguments['--dtype'],
+        num_classes=arguments['--k'],
+        one_hot=arguments['--one-hot'],
         path=arguments['--test'],
         shape=(arguments['--nt'], arguments['--d']))
     if arguments['closed']:
-        X, Y, model = ClosedForm.from_arguments(arguments, X_test, labels_test)
+        X, Y, model = ClosedForm.from_arguments(arguments, test.X, test.labels)
     elif arguments['gd']:
-        X, Y, model = GD.from_arguments(arguments, X_test, labels_test)
+        X, Y, model = GD.from_arguments(arguments, test.X, test.labels)
     elif arguments['sgd']:
-        X, Y, model = SGD.from_arguments(arguments, X_test, labels_test)
+        X, Y, model = SGD.from_arguments(arguments, test.X, test.labels)
     elif arguments['ssgd']:
-        X, Y, model = SSGD.from_arguments(arguments, X_test, labels_test)
+        X, Y, model = SSGD.from_arguments(arguments, test.X, test.labels)
     elif arguments['hsgd']:
         raise NotImplementedError
     else:
         raise UserWarning('Invalid algorithm specified.')
     labels = de_one_hot(Y)
     train_accuracy = model.accuracy(X, labels)
-    test_accuracy = model.accuracy(X_test, labels_test)
+    test_accuracy = model.accuracy(test.X, test.labels)
     print('Train:', train_accuracy, 'Test:', test_accuracy)
 
 

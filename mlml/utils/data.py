@@ -6,18 +6,36 @@ from typing import Callable
 import numpy as np
 
 
+class Data:
+    """Represents data. Is guaranteed to have all training, test data."""
+
+    def __init__(
+            self,
+            labels: np.ndarray,
+            num_classes: int,
+            one_hot: bool,
+            X: np.ndarray):
+        self.X = X
+        self.labels = labels
+        self.Y = to_one_hot(num_classes, labels) if one_hot else labels
+        self.n = X.shape[0]
+
+
 def read_dataset(
         data_hook: Callable[[np.ndarray, np.ndarray], Tuple],
         dtype: str,
+        num_classes: int,
+        one_hot: bool,
         path: str,
-        shape: Tuple[int, int]) -> Tuple[np.ndarray, np.ndarray]:
+        shape: Tuple[int, int]) -> Data:
     """Read the dataset in its entirety.
 
     Returns the training input and the labels. Note that labels are necessarily
     *not* one hot vectors. They are values.
     """
     data = np.memmap(path, dtype=dtype, mode='r', shape=(shape[0], shape[1] + 1))
-    return data_hook(*block_x_labels(data))
+    X, labels = data_hook(*block_x_labels(data))
+    return Data(labels, num_classes, one_hot, X)
 
 
 def block_x_labels(block: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -36,6 +54,7 @@ def block_x_labels(block: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
 
 def to_one_hot(num_classes: int, y: np.ndarray):
+    """Convert vector into one hot form."""
     one_hot = np.eye(num_classes)[y]
     if len(one_hot.shape) > 2:
         one_hot.shape = (one_hot.shape[0], one_hot.shape[-1])
