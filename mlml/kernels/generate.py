@@ -16,6 +16,7 @@ from math import ceil
 from mlml.ssgd.blocks import BlockBuffer
 from mlml.ssgd.blocks import BlockWriter
 from mlml.ssgd.blocks import bytes_per_dtype
+from mlml.utils.data import Data
 from shutil import copyfile
 from typing import Callable
 from typing import Union
@@ -110,30 +111,33 @@ class MemKernel:
             dtype: str,
             function: Callable[[np.ndarray, np.ndarray], np.ndarray],
             num_samples: int,
-            X: np.ndarray,
-            Y: np.ndarray,
-            id: str=time.time(),
+            data: Data,
+            memId: str=time.time(),
             dir: str= './'):
         self.dtype = dtype
         self.function = function
         self.num_samples = num_samples
-        self.kernel_path = os.path.join(dir, MemKernel.PATH.format(id=id))
-        self.n, self.d = X.shape
-        self.X = X
-        self.Y = Y
+        self.memId = memId
+        self.kernel_path = os.path.join(dir, MemKernel.PATH.format(id=memId))
+        self.n, self.d = data.X.shape
+        self.data = data
 
     def generate(self):
         """Generate kernel from matrix X and save to disk."""
-        print(' * [MemKernel] Generating kernel matrix.')
-        s = self.num_samples
+        print(' * [MemKernel] Generating kernel matrix', self.memId)
+        s, rows_written = self.num_samples, 0
         writer = BlockWriter(self.dtype, self.n, s, self.kernel_path)
         for o in range(ceil(self.n / s)):
-            partial = np.zeros((s, self.n))
-            for i, row in enumerate(self.X[o * s: (o + 1) * s]):
-                for j, col in enumerate(self.X):
+            partial = np.zeros((s, self.n + 1))
+            for i, row in enumerate(self.data.X[o * s: (o + 1) * s]):
+                for j, col in enumerate(self.data.X):
                     partial[i][j] = self.function(row, col)
+                partial[i][self.n] = self.data.labels[i]
+                rows_written += 1
             writer.write(partial)
             print(' * [MemKernel] Wrote partial', o)
+        print(' * [MemKernel] Finished', (rows_written, self.n + 1),
+              'Kernel', self.memId)
         return self
 
 
@@ -148,15 +152,14 @@ class RidgeRegressionKernel(MemKernel):
             dtype: str,
             function: Callable[[np.ndarray, np.ndarray], np.ndarray],
             num_samples: int,
-            X: np.ndarray,
-            Y: np.ndarray,
-            id: str = time.time(),
+            data: Data,
+            memId: str=time.time(),
             reg: float = 0.1,
             dir: str = './'):
         super(RidgeRegressionKernel, self).__init__(
-            dtype, function, num_samples, X, Y, id, dir)
-        self.a1_path = os.path.join(dir, self.A1_PATH.format(id=id))
-        self.a2_path = os.path.join(dir, self.A2_PATH.format(id=id))
+            dtype, function, num_samples, data, memId, dir)
+        self.a1_path = os.path.join(dir, self.A1_PATH.format(id=memId))
+        self.a2_path = os.path.join(dir, self.A2_PATH.format(id=memId))
         self.A1 = MemMatrix(
             num_samples, self.a1_path, self.dtype, mode='r+',
             shape=(self.n, self.n)) if os.path.exists(self.a1_path) else None
@@ -169,10 +172,10 @@ class RidgeRegressionKernel(MemKernel):
         """Generate the matrix K + lambda I."""
         copyfile(self.kernel_path, self.a1_path)
         print(' * [MemKernel] Generating A1')
-        n = self.X.shape[0]
+        n = self.data.X.shape[0]
         mode = 'r+' if os.path.exists(self.a1_path) else 'w+'
         fh = np.memmap(self.a1_path, self.dtype, mode=mode, shape=(n, n))
-        for i in range(self.X.shape[0]):
+        for i in range(self.data.X.shape[0]):
             fh[i, i] += self.reg
         self.A1 = MemMatrix(self.num_samples, self.a1_path, self.dtype,
                             mode='r+', shape=(n, n))
@@ -187,7 +190,7 @@ class RidgeRegressionKernel(MemKernel):
 
     def generate_A3(self):
         """Generate the matrix A1 y."""
-        self.A3 = self.A1.dot(self.Y)
+        self.A3 = self.A1.dot(self.data.Y)
         return self
 
     def gradient(self, M: np.ndarray):
