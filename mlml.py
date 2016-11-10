@@ -10,6 +10,7 @@ Usage:
     mlml.py ssgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
     mlml.py hsgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
     mlml.py (closed|gd|sgd|ssgd) (mnist|spam|cifar-10) [options]
+    mlml.py generate (RBF) (mnist|spam|cifar-10) [options]
 
 Options:
     --algo=<algo>       Shuffling algorithm to use [default: external_shuffle]
@@ -20,10 +21,11 @@ Options:
     --epochs=<epochs>   Number of passes over the training data [default: 3]
     --eta0=<eta0>       The initial learning rate [default: 1e-6]
     --iters=<iters>     The number of iterations, used for gd and sgd [default: 5000]
+    --k=<k>             Number of classes [default: 10]
+    --mem=<mem>         Id of memory-mapped matrices.
     --logfreq=<freq>    Number of iterations between log entries. 0 for no log. [default: 1000]
     --momentum=<mom>    Momentum to apply to changes in weight [default: 0.9]
     --n=<n>             Number of training samples
-    --k=<k>             Number of classes [default: 10]
     --nt=<nt>           Number of testing samples
     --one-hot=<onehot>  Whether or not to use one hot encoding [default: False]
     --nthreads=<nthr>   Number of threads [default: 1]
@@ -35,10 +37,13 @@ Options:
 """
 
 import docopt
+import time
 
 from mlml.algorithm import ClosedForm
 from mlml.algorithm import GD
 from mlml.algorithm import SGD
+from mlml.kernels.functions import RBF
+from mlml.kernels.generate import RidgeRegressionKernel
 from mlml.ssgd.algorithm import SSGD
 from mlml.ssgd.blocks import bytes_per_dtype
 from mlml.utils.data import read_dataset
@@ -48,6 +53,42 @@ def main() -> None:
     """Load data and launch training, then evaluate accuracy."""
     arguments = preprocess_arguments(docopt.docopt(__doc__, version='MLML 1.0'))
 
+    if arguments['generate']:
+        generate(arguments)
+    else:
+        train(arguments)
+
+
+def generate(arguments):
+    """Generate a Kernel matrix on disk."""
+    train = read_dataset(
+        data_hook=arguments['--data-hook'],
+        dtype=arguments['--dtype'],
+        num_classes=arguments['--k'],
+        one_hot=arguments['--one-hot'],
+        path=arguments['--train'],
+        shape=(arguments['--n'], arguments['--d']))
+
+    if arguments['RBF']:
+        rbf = RBF(0.01)
+        RidgeRegressionKernel(
+                arguments['--dtype'],
+                rbf,
+                arguments['--num-per-block'],
+                train.X,
+                train.Y,
+                str(time.time())[-5:],
+                arguments['--reg'],
+                'data')\
+            .generate()\
+            .generate_A1()\
+            .generate_A2()\
+            .generate_A3()
+    print(' * Finished generation.')
+
+
+def train(arguments):
+    """Train the specified algorithm."""
     test = read_dataset(
         data_hook=arguments['--data-hook'],
         dtype=arguments['--dtype'],
