@@ -50,6 +50,7 @@ class SSGD(Algorithm):
             one_hot=arguments['--one-hot'],
             simulated=arguments['--simulated'],
             step=arguments['--step'],
+            subset=arguments['--subset'],
             train_path=arguments['--train'],
             X_test=X_test,
             labels_test=y_test)
@@ -73,6 +74,7 @@ class SSGD(Algorithm):
             one_hot: bool,
             simulated: bool,
             step: int,
+            subset: int,
             train_path: str,
             X_test: np.ndarray,
             labels_test: np.ndarray) -> Tuple[Data, Model]:
@@ -112,10 +114,11 @@ class SSGD(Algorithm):
         Returns:
             The trained model
         """
+        train = None
         if simulated:
             shape = (n, num_features)
             train = read_dataset(
-                data_hook, dtype, num_classes, one_hot, train_path, shape)
+                data_hook, dtype, num_classes, one_hot, train_path, shape, 10)
         f = open(LOG_PATH_FORMAT.format(time=TIME, algo='ssgd'), 'w')
         f.write(LOG_HEADER)
         model = RegressionModel.initialize_zero(num_features, num_classes)
@@ -145,4 +148,6 @@ class SSGD(Algorithm):
                     iteration += 1
             logger.epoch(p)
         f.close()
+        if train is None:
+            train = Data(labels, num_classes, one_hot, X)
         return train, model

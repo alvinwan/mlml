@@ -27,13 +27,16 @@ def read_dataset(
         num_classes: int,
         one_hot: bool,
         path: str,
-        shape: Tuple[int, int]) -> Data:
+        shape: Tuple[int, int],
+        subset: int) -> Data:
     """Read the dataset in its entirety.
 
     Returns the training input and the labels. Note that labels are necessarily
     *not* one hot vectors. They are values.
     """
     data = np.memmap(path, dtype=dtype, mode='r', shape=(shape[0], shape[1] + 1))
+    if subset > 0:
+        data = data[:subset]
     X, labels = data_hook(*block_x_labels(data))
     return Data(labels, num_classes, one_hot, X)
 

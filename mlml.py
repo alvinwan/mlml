@@ -22,8 +22,8 @@ Options:
     --eta0=<eta0>       The initial learning rate [default: 1e-6]
     --iters=<iters>     The number of iterations, used for gd and sgd [default: 5000]
     --k=<k>             Number of classes [default: 10]
-    --mem=<mem>         Id of memory-mapped matrices.
     --logfreq=<freq>    Number of iterations between log entries. 0 for no log. [default: 1000]
+    --memId=<memId>     Id of memory-mapped matrices containing Kernel.
     --momentum=<mom>    Momentum to apply to changes in weight [default: 0.9]
     --n=<n>             Number of training samples
     --nt=<nt>           Number of testing samples
@@ -34,6 +34,7 @@ Options:
     --train=<train>     Path to training data binary [default: data/train]
     --test=<test>       Path to test data [default: data/test]
     --simulated         Mark memory constraints as simulated. Allows full accuracy tests.
+    --subset=<num>      Specify subset of data to pick. Ignored if <= 0. [default: 0]
 """
 
 import docopt
@@ -67,7 +68,8 @@ def generate(arguments):
         num_classes=arguments['--k'],
         one_hot=arguments['--one-hot'],
         path=arguments['--train'],
-        shape=(arguments['--n'], arguments['--d']))
+        shape=(arguments['--n'], arguments['--d']),
+        subset=arguments['--subset'])
 
     if arguments['RBF']:
         rbf = RBF(0.01)
@@ -75,8 +77,7 @@ def generate(arguments):
                 arguments['--dtype'],
                 rbf,
                 arguments['--num-per-block'],
-                train.X,
-                train.Y,
+                train,
                 str(time.time())[-5:],
                 arguments['--reg'],
                 'data')\
@@ -95,7 +96,8 @@ def train(arguments):
         num_classes=arguments['--k'],
         one_hot=arguments['--one-hot'],
         path=arguments['--test'],
-        shape=(arguments['--nt'], arguments['--d']))
+        shape=(arguments['--nt'], arguments['--d']),
+        subset=arguments['--subset'])
     if arguments['closed']:
         train, model = ClosedForm.from_arguments(arguments, test.X, test.labels)
     elif arguments['gd']:
@@ -161,6 +163,17 @@ def preprocess_arguments(arguments) -> dict:
     arguments['--one-hot'] = arguments['--one-hot'].lower() == 'true'
     arguments['--reg'] = float(arguments['--reg'])
     arguments['--step'] = int(arguments['--step'])
+    arguments['--subset'] = int(arguments['--subset'])
+
+    if arguments['--memId']:
+        arguments['--train'] = 'data/mem-{memid}-A1.tmp'.format(
+            memid=arguments['--memId'])
+        arguments['--test'] = 'data/mem-{memid}-A1.tmp'.format(
+            memid=arguments['--memId'])
+        if arguments['--subset'] > 0:
+            arguments['--n'] = arguments['--nt'] = arguments['--subset']
+        arguments['--d'] = arguments['--n']
+        arguments['--dtype'] = 'float64'  # todo: allow user override
 
     bytes_total = float(arguments['--buffer']) * (10 ** 6)
     bytes_per_sample = (arguments['--d'] + 1) * bytes_per_dtype(arguments['--dtype'])
