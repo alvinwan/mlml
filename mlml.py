@@ -72,15 +72,14 @@ def generate(arguments):
         subset=arguments['--subset'])
 
     if arguments['RBF']:
-        rbf = RBF(0.01)
+        rbf = RBF(1)
         RidgeRegressionKernel(
-                arguments['--dtype'],
                 rbf,
                 arguments['--num-per-block'],
                 train,
-                str(time.time())[-5:],
-                arguments['--reg'],
-                'data')\
+                ('%d-' % arguments['--subset']) + str(time.time())[-5:],
+                reg=arguments['--reg'],
+                dir='data')\
             .generate()\
             .generate_A1()\
             .generate_A2()\
@@ -166,6 +165,7 @@ def preprocess_arguments(arguments) -> dict:
     arguments['--subset'] = int(arguments['--subset'])
 
     if arguments['--memId']:
+        arguments['--data-hook'] = lambda *args: args
         arguments['--train'] = 'data/mem-{memid}-A1.tmp'.format(
             memid=arguments['--memId'])
         arguments['--test'] = 'data/mem-{memid}-A1.tmp'.format(

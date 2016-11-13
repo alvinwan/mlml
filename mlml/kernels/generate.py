@@ -17,6 +17,7 @@ from mlml.ssgd.blocks import BlockBuffer
 from mlml.ssgd.blocks import BlockWriter
 from mlml.ssgd.blocks import bytes_per_dtype
 from mlml.utils.data import Data
+from mlml.logging import timeit
 from shutil import copyfile
 from typing import Callable
 from typing import Union
@@ -122,10 +123,11 @@ class MemKernel:
         self.n, self.d = data.X.shape
         self.data = data
 
+    @timeit
     def generate(self):
         """Generate kernel from matrix X and save to disk."""
         print(' * [MemKernel] Generating kernel matrix', self.memId)
-        s, rows_written = self.num_samples, 0
+        s, rows_written = min(self.num_samples, self.n), 0
         writer = BlockWriter(self.dtype, self.n, s, self.kernel_path)
         for o in range(ceil(self.n / s)):
             partial = np.zeros((s, self.n + 1))
@@ -149,11 +151,11 @@ class RidgeRegressionKernel(MemKernel):
 
     def __init__(
             self,
-            dtype: str,
             function: Callable[[np.ndarray, np.ndarray], np.ndarray],
             num_samples: int,
             data: Data,
             memId: str=time.time(),
+            dtype: str = 'float64',
             reg: float = 0.1,
             dir: str = './'):
         super(RidgeRegressionKernel, self).__init__(
@@ -168,13 +170,14 @@ class RidgeRegressionKernel(MemKernel):
             shape=(self.n, self.n)) if os.path.exists(self.a2_path) else None
         self.reg = reg
 
+    @timeit
     def generate_A1(self):
         """Generate the matrix K + lambda I."""
         copyfile(self.kernel_path, self.a1_path)
         print(' * [MemKernel] Generating A1')
         n = self.data.X.shape[0]
         mode = 'r+' if os.path.exists(self.a1_path) else 'w+'
-        fh = np.memmap(self.a1_path, self.dtype, mode=mode, shape=(n, n))
+        fh = np.memmap(self.a1_path, self.dtype, mode=mode, shape=(n, n + 1))
         for i in range(self.data.X.shape[0]):
             fh[i, i] += self.reg
         self.A1 = MemMatrix(self.num_samples, self.a1_path, self.dtype,
@@ -182,14 +185,17 @@ class RidgeRegressionKernel(MemKernel):
         del fh
         return self
 
+    @timeit
     def generate_A2(self):
         """Generate the matrix A1^T A1 = A1 A1"""
         print(' * [MemKernel] Generating A2')
         self.A2 = self.A1.dot(self.A1, mmap=True, path=self.a2_path)
         return self
 
+    @timeit
     def generate_A3(self):
         """Generate the matrix A1 y."""
+        print(' * [MemKernel] Generating A3')
         self.A3 = self.A1.dot(self.data.Y)
         return self
 
