@@ -52,7 +52,7 @@ class StandardLogger(Logger):
             iteration: int,
             f,
             log_frequency: int,
-            loss: Loss,
+            loss_function: Loss,
             model: Model,
             X_train: np.ndarray,
             y_train: np.ndarray,
@@ -62,13 +62,15 @@ class StandardLogger(Logger):
         if log_frequency and iteration % log_frequency == 0:
             train_accuracy = model.accuracy(X_train, labels_train)
             test_accuracy = model.accuracy(X_test, labels_test)
-            print('Train:', train_accuracy, 'Test:', test_accuracy)
+            print('Train:', train_accuracy, 'Test:', test_accuracy,
+                  'Loss:', loss_function(model, X_train, y_train))
             f.write(LOG_ENTRY_FORMAT.format(
                 i=iteration,
                 time=time.time() - TIME,
-                loss=loss(model, X_train, y_train),
+                loss=loss_function(model, X_train, y_train),
                 train_accuracy=train_accuracy,
                 test_accuracy=test_accuracy))
 
     def epoch(self, epoch: int):
-        print('=' * 30, '\n * SGD : Epoch {p} finished.'.format(p=epoch))
+        pass
+        # print('=' * 30, '\n * SGD : Epoch {p} finished.'.format(p=epoch))

@@ -23,7 +23,6 @@ from mlml.logging import timeit
 from shutil import copyfile
 from typing import Callable
 from typing import Union
-from typing import Tuple
 
 
 class MemMatrix:
@@ -115,7 +114,6 @@ class MemKernel:
             dtype: str,
             function: Callable[[np.ndarray, np.ndarray], np.ndarray],
             num_samples: int,
-            shape: Tuple[int, int],
             data: Data=None,
             memId: str=time.time(),
             dir: str= './'):
@@ -124,7 +122,7 @@ class MemKernel:
         self.num_samples = num_samples
         self.memId = memId
         self.kernel_path = os.path.join(dir, MemKernel.PATH.format(id=memId))
-        self.n, self.d = shape
+        self.n, self.d = data.X.shape
         self.data = data
 
     @timeit
@@ -151,92 +149,37 @@ class MemKernel:
 class RidgeRegressionKernel(MemKernel):
     """Kernel precomputation specific to Ridge Regression."""
 
-    A1_PATH = MemKernel.PATH_PREFIX + '-A1.tmp'
-    A2_PATH = MemKernel.PATH_PREFIX + '-A2.tmp'
-    A3_PATH = MemKernel.PATH_PREFIX + '-A3.tmp'
+    LAMBDA_PATH = MemKernel.PATH_PREFIX + '-Lambda.tmp'
 
     def __init__(
             self,
             function: Callable[[np.ndarray, np.ndarray], np.ndarray],
             num_samples: int,
-            shape: Tuple[int, int],
-            data: Data=None,
+            data: Data,
             dir: str = './',
             dtype: str = 'float64',
             mem_id: str=time.time(),
             reg: float = 0.1):
         super(RidgeRegressionKernel, self).__init__(
-            dtype, function, num_samples, shape, data, mem_id, dir)
-        self.a1_path = os.path.join(dir, self.A1_PATH.format(id=mem_id))
-        self.a2_path = os.path.join(dir, self.A2_PATH.format(id=mem_id))
-        self.a3_path = os.path.join(dir, self.A3_PATH.format(id=mem_id))
-        print(self.a1_path)
-        self.A1 = MemMatrix(
-            num_samples, self.a1_path, self.dtype, mode='r+',
-            shape=(self.n, self.n)) if os.path.exists(self.a1_path) else None
-        self.A2 = MemMatrix(
-            num_samples, self.a2_path, self.dtype, mode='r+',
-            shape=(self.n, self.n)) if os.path.exists(self.a2_path) else None
-        self.A3 = MemMatrix(
-            num_samples, self.a3_path, self.dtype, mode='r+',
-            shape=(self.n, self.n)) if os.path.exists(self.a3_path) else None
+            dtype, function, num_samples, data, mem_id, dir)
+        self.Lambda_path = os.path.join(dir, self.LAMBDA_PATH.format(id=mem_id))
+        self.Lambda = MemMatrix(
+            num_samples, self.Lambda_path, self.dtype, mode='r+',
+            shape=(self.n, self.n)) if os.path.exists(self.Lambda_path) else None
         self.reg = reg
 
-        assert not (data is None and self.A1 is None), \
-            'Data needed to generate matrices for Ridge Reg. Kernel (A1).'
-        assert not (data is None and self.A2 is None), \
-            'Data needed to generate matrices for Ridge Reg. Kernel (A2).'
-
     @timeit
-    def generate_A1(self):
+    def generate_Lambda(self):
         """Generate the matrix K + lambda I."""
-        copyfile(self.kernel_path, self.a1_path)
-        print(' * [MemKernel] Generating A1')
+        copyfile(self.kernel_path, self.Lambda_path)
+        print(' * [MemKernel] Generating Lambda')
         n = self.data.X.shape[0]
-        mode = 'r+' if os.path.exists(self.a1_path) else 'w+'
-        fh = np.memmap(self.a1_path, self.dtype, mode=mode, shape=(n, n + 1))
+        mode = 'r+' if os.path.exists(self.Lambda_path) else 'w+'
+        fh = np.memmap(self.Lambda_path, self.dtype, mode=mode, shape=(n, n + 1))
         for i in range(self.data.X.shape[0]):
             fh[i, i] += self.reg
-        self.A1 = MemMatrix(self.num_samples, self.a1_path, self.dtype,
+        self.Lambda = MemMatrix(self.num_samples, self.Lambda_path, self.dtype,
                             mode='r+', shape=(n, n))
         del fh
         return self
 
-    @timeit
-    def generate_A2(self):
-        """Generate the matrix A1^T A1 = A1 A1"""
-        print(' * [MemKernel] Generating A2')
-        self.A2 = self.A1.dot(self.A1, mmap=True, path=self.a2_path)
-        return self
-
-    @timeit
-    def generate_A3(self):
-        """Generate the matrix A1 y."""
-        print(' * [MemKernel] Generating A3')
-        self.A3 = self.A1.dot(self.data.Y)
-        fh = np.memmap(self.a3_path, self.dtype, 'w+', shape=self.A3.shape)
-        fh[:] = self.A3[:]
-        del fh
-        return self
-
-    def gradient(
-            self,
-            M: np.ndarray):
-        """Evaluate gradient using A2 * B - A3."""
-        return self.A2.dot(M) - self.A3
-
-
-class KernelizedRidgeRegression(RidgeRegression):
-    """Kernelized Ridge Regression loss implementation"""
-
-    def __init__(self, kernel: RidgeRegressionKernel, reg: float):
-        super(KernelizedRidgeRegression, self).__init__(reg)
-        self.kernel = kernel
-
-    def gradient(
-            self,
-            model: RegressionModel,
-            _: np.ndarray = None,
-            __: np.ndarray = None):
-        """Evaluate gradient using cached matrices for RidgeRegressionKernel."""
-        return self.kernel.A2.dot(model.w) - self.kernel.A3

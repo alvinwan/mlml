@@ -47,7 +47,6 @@ from mlml.algorithm import GD
 from mlml.algorithm import SGD
 from mlml.kernels.functions import RBF
 from mlml.kernels.generate import RidgeRegressionKernel
-from mlml.kernels.generate import KernelizedRidgeRegression
 from mlml.loss import RidgeRegression
 from mlml.ssgd.algorithm import SSGD
 from mlml.ssgd.blocks import bytes_per_dtype
@@ -81,14 +80,11 @@ def generate(arguments):
                 function=rbf,
                 num_samples=arguments['--num-per-block'],
                 data=train,
-                shape=train.X.shape,
                 dir='data',
                 mem_id=('%d-' % arguments['--subset']) + str(time.time())[-5:],
                 reg=arguments['--reg'])\
             .generate()\
-            .generate_A1()\
-            .generate_A2()\
-            .generate_A3()
+            .generate_Lambda()
     print(' * Finished generation.')
 
 
@@ -102,16 +98,7 @@ def train(arguments):
         path=arguments['--test'],
         shape=(arguments['--nt'], arguments['--d']),
         subset=arguments['--subset'])
-    if arguments['--loss'] == 'ridge' and arguments['--memId']:
-        rbf = RBF(1)
-        kernel = RidgeRegressionKernel(
-            dir='./data',
-            function=rbf,
-            num_samples=arguments['--n'],
-            mem_id=arguments['--memId'],
-            shape=(arguments['--n'], arguments['--d']))
-        loss = KernelizedRidgeRegression(kernel, arguments['--reg'])
-    elif arguments['--loss'] == 'ridge' and not arguments['--memId']:
+    if arguments['--loss'] == 'ridge':
         loss = RidgeRegression(arguments['--reg'])
     else:
         raise NotImplementedError
@@ -188,14 +175,15 @@ def preprocess_arguments(arguments) -> dict:
 
     if arguments['--memId']:
         arguments['--data-hook'] = lambda *args: args
-        arguments['--train'] = 'data/mem-{memid}-A1.tmp'.format(
+        arguments['--train'] = 'data/mem-{memid}-Lambda.tmp'.format(
             memid=arguments['--memId'])
-        arguments['--test'] = 'data/mem-{memid}-A1.tmp'.format(
+        arguments['--test'] = 'data/mem-{memid}-Lambda.tmp'.format(
             memid=arguments['--memId'])
         if arguments['--subset'] > 0:
             arguments['--n'] = arguments['--nt'] = arguments['--subset']
         arguments['--d'] = arguments['--n']
         arguments['--dtype'] = 'float64'  # todo: allow user override
+        arguments['--reg'] = 0
 
     bytes_total = float(arguments['--buffer']) * (10 ** 6)
     bytes_per_sample = (arguments['--d'] + 1) * bytes_per_dtype(arguments['--dtype'])
