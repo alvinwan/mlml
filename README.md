@@ -2,11 +2,10 @@
 
 This Python3 package offers support for a variety of algorithms on
 memory-limited infrastructure. Specifically, this package addresses
-three memory-limited scenarios:
+two memory-limited scenarios:
 
 1. Dataset is too large to fit in memory.
 2. Kernel is too large to fit in memory.
-3. Both the dataset and the kernel are too large to fit in memory. (WIP)
 
 created by [Alvin Wan](http://alvinwan.com), with guidance of 
 Vaishaal Shankar under 
@@ -61,13 +60,17 @@ memory constraints. Note that the `--buffer` size is in MB.
 
 ## Scenario 2: Kernelized Stochastic Gradient Descent
 
-> MLML currently only supports Kernelized Ridge Regression.
+> MLML currently prepackages only Kernelized Ridge Regression. However,
+there are generic utilities such as `MemMatrix` and extensible interfaces
+such as `Loss` and `Model` that enable the addition of custom kernelized 
+losses.
 
-With `mlml.py`, there are two steps to solving a kernelized problem.
+With `mlml.py`, there are two steps to solving a kernelized problem; see
+the derivation [here.](https://github.com/alvinwan/mlml/blob/master/files/ridgeregression.pdf)
 First, generate the kernel matrix and pre-computed matrices. Use the
 `--subset=<num>` flag to perform computations on a subset of the data.
 
-    python mlml.py generate (RBF) (mnist|spam|cifar-10) [options]
+    python mlml.py generate (mnist|spam|cifar-10) --kernel=<kernel> [options]
 
 Then, run streaming stochastic gradient to compute the inverse of
 our kernel matrix or a function of our kernel matrix.
@@ -79,12 +82,8 @@ samples from MNIST, using the radial basis function (RBF). Note that
 the first command will output the `<memId>` needed for the second
 command.
 
-    python mlml.py generate RBF mnist --subset=2000
+    python mlml.py generate mnist --subset=2000 --kernel=RBF
     python mlml.py ssgd mnist --memId=<memId> --subset=2000
-
-## Scenario 3
-
-*work in progress*
 
 ## Command-Line Utility
 
@@ -98,8 +97,8 @@ repository.
         mlml.py ssgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
         mlml.py hsgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
         mlml.py (closed|gd|sgd|ssgd) (mnist|spam|cifar-10) [options]
-        mlml.py generate (RBF) (mnist|spam|cifar-10) [options]
-    
+        mlml.py generate (mnist|spam|cifar-10) --kernel=<kernel> [options]
+
     Options:
         --algo=<algo>       Shuffling algorithm to use [default: external_shuffle]
         --buffer=<num>      Size of memory in megabytes (MB) [default: 10]
@@ -110,8 +109,10 @@ repository.
         --eta0=<eta0>       The initial learning rate [default: 1e-6]
         --iters=<iters>     The number of iterations, used for gd and sgd [default: 5000]
         --k=<k>             Number of classes [default: 10]
-        --mem=<mem>         Id of memory-mapped matrices.
+        --kernel=<kernel>   Kernel function to use [default: RBF]
+        --loss=<loss>       Type of loss to use [default: ridge]
         --logfreq=<freq>    Number of iterations between log entries. 0 for no log. [default: 1000]
+        --memId=<memId>     Id of memory-mapped matrices containing Kernel.
         --momentum=<mom>    Momentum to apply to changes in weight [default: 0.9]
         --n=<n>             Number of training samples
         --nt=<nt>           Number of testing samples
@@ -122,6 +123,7 @@ repository.
         --train=<train>     Path to training data binary [default: data/train]
         --test=<test>       Path to test data [default: data/test]
         --simulated         Mark memory constraints as simulated. Allows full accuracy tests.
+        --subset=<num>      Specify subset of data to pick. Ignored if <= 0. [default: 0]
 
 # Installation
 
