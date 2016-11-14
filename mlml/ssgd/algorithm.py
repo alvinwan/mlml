@@ -31,7 +31,9 @@ class SSGD(Algorithm):
             cls,
             arguments: dict,
             X_test: np.ndarray,
-            y_test: np.ndarray) -> Tuple[Data, Model]:
+            y_test: np.ndarray,
+            logger: Logger=StandardLogger(),
+            loss: Loss=RidgeRegression(0.1)) -> Tuple[Data, Model]:
         return SSGD().train(
             algorithm=arguments['--algo'],
             damp=arguments['--damp'],
@@ -41,7 +43,7 @@ class SSGD(Algorithm):
             eta0=arguments['--eta0'],
             logger=StandardLogger(),
             log_frequency=arguments['--logfreq'],
-            loss=RidgeRegression(arguments['--reg']),
+            loss=loss,
             momentum=arguments['--momentum'],
             n=arguments['--n'],
             num_classes=arguments['--k'],

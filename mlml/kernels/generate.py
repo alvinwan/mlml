@@ -16,11 +16,14 @@ from math import ceil
 from mlml.ssgd.blocks import BlockBuffer
 from mlml.ssgd.blocks import BlockWriter
 from mlml.ssgd.blocks import bytes_per_dtype
+from mlml.loss import RidgeRegression
+from mlml.model import RegressionModel
 from mlml.utils.data import Data
 from mlml.logging import timeit
 from shutil import copyfile
 from typing import Callable
 from typing import Union
+from typing import Tuple
 
 
 class MemMatrix:
@@ -112,7 +115,8 @@ class MemKernel:
             dtype: str,
             function: Callable[[np.ndarray, np.ndarray], np.ndarray],
             num_samples: int,
-            data: Data,
+            shape: Tuple[int, int],
+            data: Data=None,
             memId: str=time.time(),
             dir: str= './'):
         self.dtype = dtype
@@ -120,12 +124,13 @@ class MemKernel:
         self.num_samples = num_samples
         self.memId = memId
         self.kernel_path = os.path.join(dir, MemKernel.PATH.format(id=memId))
-        self.n, self.d = data.X.shape
+        self.n, self.d = shape
         self.data = data
 
     @timeit
     def generate(self):
         """Generate kernel from matrix X and save to disk."""
+        assert self.data is not None, 'Data required to generate kernel matrix.'
         print(' * [MemKernel] Generating kernel matrix', self.memId)
         s, rows_written = min(self.num_samples, self.n), 0
         writer = BlockWriter(self.dtype, self.n, s, self.kernel_path)
@@ -148,27 +153,39 @@ class RidgeRegressionKernel(MemKernel):
 
     A1_PATH = MemKernel.PATH_PREFIX + '-A1.tmp'
     A2_PATH = MemKernel.PATH_PREFIX + '-A2.tmp'
+    A3_PATH = MemKernel.PATH_PREFIX + '-A3.tmp'
 
     def __init__(
             self,
             function: Callable[[np.ndarray, np.ndarray], np.ndarray],
             num_samples: int,
-            data: Data,
-            memId: str=time.time(),
+            shape: Tuple[int, int],
+            data: Data=None,
+            dir: str = './',
             dtype: str = 'float64',
-            reg: float = 0.1,
-            dir: str = './'):
+            mem_id: str=time.time(),
+            reg: float = 0.1):
         super(RidgeRegressionKernel, self).__init__(
-            dtype, function, num_samples, data, memId, dir)
-        self.a1_path = os.path.join(dir, self.A1_PATH.format(id=memId))
-        self.a2_path = os.path.join(dir, self.A2_PATH.format(id=memId))
+            dtype, function, num_samples, shape, data, mem_id, dir)
+        self.a1_path = os.path.join(dir, self.A1_PATH.format(id=mem_id))
+        self.a2_path = os.path.join(dir, self.A2_PATH.format(id=mem_id))
+        self.a3_path = os.path.join(dir, self.A3_PATH.format(id=mem_id))
+        print(self.a1_path)
         self.A1 = MemMatrix(
             num_samples, self.a1_path, self.dtype, mode='r+',
             shape=(self.n, self.n)) if os.path.exists(self.a1_path) else None
         self.A2 = MemMatrix(
             num_samples, self.a2_path, self.dtype, mode='r+',
             shape=(self.n, self.n)) if os.path.exists(self.a2_path) else None
+        self.A3 = MemMatrix(
+            num_samples, self.a3_path, self.dtype, mode='r+',
+            shape=(self.n, self.n)) if os.path.exists(self.a3_path) else None
         self.reg = reg
+
+        assert not (data is None and self.A1 is None), \
+            'Data needed to generate matrices for Ridge Reg. Kernel (A1).'
+        assert not (data is None and self.A2 is None), \
+            'Data needed to generate matrices for Ridge Reg. Kernel (A2).'
 
     @timeit
     def generate_A1(self):
@@ -197,8 +214,29 @@ class RidgeRegressionKernel(MemKernel):
         """Generate the matrix A1 y."""
         print(' * [MemKernel] Generating A3')
         self.A3 = self.A1.dot(self.data.Y)
+        fh = np.memmap(self.a3_path, self.dtype, 'w+', shape=self.A3.shape)
+        fh[:] = self.A3[:]
+        del fh
         return self
 
-    def gradient(self, M: np.ndarray):
+    def gradient(
+            self,
+            M: np.ndarray):
         """Evaluate gradient using A2 * B - A3."""
         return self.A2.dot(M) - self.A3
+
+
+class KernelizedRidgeRegression(RidgeRegression):
+    """Kernelized Ridge Regression loss implementation"""
+
+    def __init__(self, kernel: RidgeRegressionKernel, reg: float):
+        super(KernelizedRidgeRegression, self).__init__(reg)
+        self.kernel = kernel
+
+    def gradient(
+            self,
+            model: RegressionModel,
+            _: np.ndarray = None,
+            __: np.ndarray = None):
+        """Evaluate gradient using cached matrices for RidgeRegressionKernel."""
+        return self.kernel.A2.dot(model.w) - self.kernel.A3

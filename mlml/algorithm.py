@@ -27,7 +27,9 @@ class Algorithm:
             cls,
             arguments: dict,
             X_test: np.ndarray,
-            y_test: np.ndarray):
+            y_test: np.ndarray,
+            logger: Logger=StandardLogger(),
+            loss: Loss=RidgeRegression(0.1)) -> Tuple[Data, Model]:
         raise NotImplementedError
 
     def train(self, **kwargs):
@@ -42,11 +44,13 @@ class ClosedForm(Algorithm):
             cls,
             arguments: dict,
             X_test: np.ndarray,
-            y_test: np.ndarray) -> Tuple[Data, Model]:
+            y_test: np.ndarray,
+            logger: Logger=StandardLogger(),
+            loss: Loss=RidgeRegression(0.1)) -> Tuple[Data, Model]:
         return ClosedForm().train(
             data_hook=arguments['--data-hook'],
             dtype=arguments['--dtype'],
-            loss=RidgeRegression(arguments['--reg']),
+            loss=loss,
             n=arguments['--n'],
             num_classes=arguments['--k'],
             num_features=arguments['--d'],
@@ -93,15 +97,17 @@ class GD(Algorithm):
             cls,
             arguments: dict,
             X_test: np.ndarray,
-            y_test: np.ndarray) -> Tuple[Data, Model]:
+            y_test: np.ndarray,
+            logger: Logger=StandardLogger(),
+            loss: Loss=RidgeRegression(0.1)) -> Tuple[Data, Model]:
         return GD().train(
             damp=arguments['--damp'],
             data_hook=arguments['--data-hook'],
             dtype=arguments['--dtype'],
             eta0=arguments['--eta0'],
             iterations=arguments['--iters'],
-            loss=RidgeRegression(arguments['--reg']),
-            logger=StandardLogger(),
+            loss=loss,
+            logger=logger,
             log_frequency=arguments['--logfreq'],
             n=arguments['--n'],
             num_classes=arguments['--k'],
@@ -180,16 +186,18 @@ class SGD(Algorithm):
             cls,
             arguments: dict,
             X_test: np.ndarray,
-            y_test: np.ndarray) -> Tuple[Data, Model]:
+            y_test: np.ndarray,
+            logger: Logger=StandardLogger(),
+            loss: Loss=RidgeRegression(0.1)) -> Tuple[Data, Model]:
         return SGD().train(
             damp=arguments['--damp'],
             data_hook=arguments['--data-hook'],
             dtype=arguments['--dtype'],
             eta0=arguments['--eta0'],
             epochs=arguments['--epochs'],
-            logger=StandardLogger(),
+            logger=logger,
             log_frequency=arguments['--logfreq'],
-            loss=RidgeRegression(arguments['--reg']),
+            loss=loss,
             momentum=arguments['--momentum'],
             n=arguments['--n'],
             num_classes=arguments['--k'],

@@ -10,7 +10,7 @@ Usage:
     mlml.py ssgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
     mlml.py hsgd --n=<n> --d=<d> --buffer=<buffer> --train=<train> --test=<test> --nt=<nt> [options]
     mlml.py (closed|gd|sgd|ssgd) (mnist|spam|cifar-10) [options]
-    mlml.py generate (RBF) (mnist|spam|cifar-10) [options]
+    mlml.py generate (mnist|spam|cifar-10) --kernel=<kernel> [options]
 
 Options:
     --algo=<algo>       Shuffling algorithm to use [default: external_shuffle]
@@ -22,6 +22,8 @@ Options:
     --eta0=<eta0>       The initial learning rate [default: 1e-6]
     --iters=<iters>     The number of iterations, used for gd and sgd [default: 5000]
     --k=<k>             Number of classes [default: 10]
+    --kernel=<kernel>   Kernel function to use [default: RBF]
+    --loss=<loss>       Type of loss to use [default: ridge]
     --logfreq=<freq>    Number of iterations between log entries. 0 for no log. [default: 1000]
     --memId=<memId>     Id of memory-mapped matrices containing Kernel.
     --momentum=<mom>    Momentum to apply to changes in weight [default: 0.9]
@@ -45,6 +47,8 @@ from mlml.algorithm import GD
 from mlml.algorithm import SGD
 from mlml.kernels.functions import RBF
 from mlml.kernels.generate import RidgeRegressionKernel
+from mlml.kernels.generate import KernelizedRidgeRegression
+from mlml.loss import RidgeRegression
 from mlml.ssgd.algorithm import SSGD
 from mlml.ssgd.blocks import bytes_per_dtype
 from mlml.utils.data import read_dataset
@@ -71,15 +75,16 @@ def generate(arguments):
         shape=(arguments['--n'], arguments['--d']),
         subset=arguments['--subset'])
 
-    if arguments['RBF']:
+    if arguments['--kernel'] == 'RBF':
         rbf = RBF(1)
         RidgeRegressionKernel(
-                rbf,
-                arguments['--num-per-block'],
-                train,
-                ('%d-' % arguments['--subset']) + str(time.time())[-5:],
-                reg=arguments['--reg'],
-                dir='data')\
+                function=rbf,
+                num_samples=arguments['--num-per-block'],
+                data=train,
+                shape=train.X.shape,
+                dir='data',
+                mem_id=('%d-' % arguments['--subset']) + str(time.time())[-5:],
+                reg=arguments['--reg'])\
             .generate()\
             .generate_A1()\
             .generate_A2()\
@@ -97,14 +102,31 @@ def train(arguments):
         path=arguments['--test'],
         shape=(arguments['--nt'], arguments['--d']),
         subset=arguments['--subset'])
+    if arguments['--loss'] == 'ridge' and arguments['--memId']:
+        rbf = RBF(1)
+        kernel = RidgeRegressionKernel(
+            dir='./data',
+            function=rbf,
+            num_samples=arguments['--n'],
+            mem_id=arguments['--memId'],
+            shape=(arguments['--n'], arguments['--d']))
+        loss = KernelizedRidgeRegression(kernel, arguments['--reg'])
+    elif arguments['--loss'] == 'ridge' and not arguments['--memId']:
+        loss = RidgeRegression(arguments['--reg'])
+    else:
+        raise NotImplementedError
     if arguments['closed']:
-        train, model = ClosedForm.from_arguments(arguments, test.X, test.labels)
+        train, model = ClosedForm.from_arguments(
+            arguments, test.X, test.labels, loss=loss)
     elif arguments['gd']:
-        train, model = GD.from_arguments(arguments, test.X, test.labels)
+        train, model = GD.from_arguments(
+            arguments, test.X, test.labels, loss=loss)
     elif arguments['sgd']:
-        train, model = SGD.from_arguments(arguments, test.X, test.labels)
+        train, model = SGD.from_arguments(
+            arguments, test.X, test.labels, loss=loss)
     elif arguments['ssgd']:
-        train, model = SSGD.from_arguments(arguments, test.X, test.labels)
+        train, model = SSGD.from_arguments(
+            arguments, test.X, test.labels, loss=loss)
     elif arguments['hsgd']:
         raise NotImplementedError
     else:
