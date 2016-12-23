@@ -16,8 +16,6 @@ from math import ceil
 from mlml.ssgd.blocks import BlockBuffer
 from mlml.ssgd.blocks import BlockWriter
 from mlml.ssgd.blocks import bytes_per_dtype
-from mlml.loss import RidgeRegression
-from mlml.model import RegressionModel
 from mlml.utils.data import Data
 from mlml.logging import timeit
 from shutil import copyfile
@@ -144,6 +142,23 @@ class MemKernel:
         print(' * [MemKernel] Finished', (rows_written, self.n + 1),
               'Kernel', self.memId)
         return self
+
+    @timeit
+    def generate_rbf(self, simulated: bool=False):
+        """Generate an RBF kernel more efficiently, if simulated."""
+        if simulated:
+            s = min(self.num_samples, self.n)
+            mmap = np.memmap(self.kernel_path, self.dtype, mode='w+', shape=(s, s))
+
+            X = self.data.X.reshape(self.data.X.shape[0], -1)
+            X_norms = (np.linalg.norm(X, axis=1) ** 2)[:, np.newaxis]
+            K = X_norms.T - 2 * X.dot(X.T) + X_norms
+            mmap[:] = np.exp(-K)
+            del mmap
+
+            print(' * [MemKernel] Finished Kernel', self.memId)
+            return self
+        return self.generate()
 
 
 class RidgeRegressionKernel(MemKernel):

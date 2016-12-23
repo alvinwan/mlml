@@ -20,7 +20,7 @@ def timeit(f):
         rv = f(*args, **kwargs)
         b = datetime.datetime.now()
         c = b - a
-        print('Time (s):', c.total_seconds())
+        print(' * Time (s):', c.total_seconds())
         return rv
     return wrapper
 
@@ -72,5 +72,4 @@ class StandardLogger(Logger):
                 test_accuracy=test_accuracy))
 
     def epoch(self, epoch: int):
-        pass
-        # print('=' * 30, '\n * SGD : Epoch {p} finished.'.format(p=epoch))
+        print('=' * 30, '\n * SGD : Epoch {p} finished.'.format(p=epoch))

@@ -83,7 +83,7 @@ def generate(arguments):
                 dir='data',
                 mem_id=('%d-' % arguments['--subset']) + str(time.time())[-5:],
                 reg=arguments['--reg'])\
-            .generate()\
+            .generate_rbf(arguments['--simulated'])\
             .generate_Lambda()
     print(' * Finished generation.')
 

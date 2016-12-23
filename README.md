@@ -8,7 +8,7 @@ two memory-limited scenarios:
 2. Kernel is too large to fit in memory.
 
 created by [Alvin Wan](http://alvinwan.com), with guidance of 
-Vaishaal Shankar under 
+[Vaishaal Shankar](http://vaishaal.com) under 
 [Professor Benjamin Recht](https://people.eecs.berkeley.edu/~brecht/) 
 at UC Berkeley
 
@@ -77,12 +77,12 @@ our kernel matrix or a function of our kernel matrix.
 
     python mlml.py ssgd (mnist|spam|cifar-10) --memId=<memId> [options] 
 
-For example, the following runs kernelized sgd on a subset of 2000
+For example, the following runs kernelized sgd on a subset of 10000
 samples from MNIST, using the radial basis function (RBF). Note that
 the first command will output the `<memId>` needed for the second
 command.
 
-    python mlml.py generate mnist --subset=2000 --kernel=RBF
+    python mlml.py generate mnist --subset=10000 --kernel=RBF
     python mlml.py ssgd mnist --memId=<memId> --subset=2000
 
 ## Command-Line Utility
