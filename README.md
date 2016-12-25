@@ -82,8 +82,14 @@ samples from MNIST, using the radial basis function (RBF). Note that
 the first command will output the `<memId>` needed for the second
 command.
 
-    python mlml.py generate mnist --subset=10000 --kernel=RBF
-    python mlml.py ssgd mnist --memId=<memId> --subset=2000
+    python mlml.py generate mnist --subset=30000 --kernel=RBF
+    python mlml.py ssgd mnist --memId=<memId> --subset=30000
+
+To use a more computationally efficient but memory-consuming algorithm,
+use the `--simulated` flag. For example, the following runs the
+alternative generation scheme for `CIFAR-10`.
+
+    python mlml.py generate cifar-10 --subset=30000 --kernel=RBF --simulated
 
 ## Command-Line Utility
 
@@ -127,7 +133,7 @@ repository.
 
 # Installation
 
-To use the included Python utilities, install from PyPi (coming soon).
+To use the included Python utilities, install from PyPi.
 
     pip install mlml
 

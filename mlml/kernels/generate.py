@@ -147,8 +147,7 @@ class MemKernel:
     def generate_rbf(self, simulated: bool=False):
         """Generate an RBF kernel more efficiently, if simulated."""
         if simulated:
-            s = min(self.num_samples, self.n)
-            mmap = np.memmap(self.kernel_path, self.dtype, mode='w+', shape=(s, s))
+            mmap = np.memmap(self.kernel_path, self.dtype, mode='w+', shape=(self.n, self.n))
 
             X = self.data.X.reshape(self.data.X.shape[0], -1)
             X_norms = (np.linalg.norm(X, axis=1) ** 2)[:, np.newaxis]

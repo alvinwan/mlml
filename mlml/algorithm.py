@@ -204,6 +204,7 @@ class SGD(Algorithm):
             num_features=arguments['--d'],
             num_per_block=arguments['--num-per-block'],
             one_hot=arguments['--one-hot'],
+            subset=arguments['--subset'],
             step=arguments['--step'],
             train_path=arguments['--train'],
             X_test=X_test,
@@ -225,6 +226,7 @@ class SGD(Algorithm):
             num_features: int,
             num_per_block: int,
             one_hot: bool,
+            subset: int,
             step: int,
             train_path: str,
             X_test: np.ndarray,
@@ -259,7 +261,7 @@ class SGD(Algorithm):
         f.write(LOG_HEADER)
         shape, w_delta, iteration = (n, num_features), 0, 0
         train = read_dataset(
-            data_hook, dtype, num_classes, one_hot, train_path, shape)
+            data_hook, dtype, num_classes, one_hot, train_path, shape, subset)
         model = RegressionModel.initialize_zero(num_features, num_classes)
         for p in range(epochs):
             indices = np.arange(0, train.X.shape[0])
