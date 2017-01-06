@@ -9,4 +9,8 @@ class RBF:
         self.sigma = sigma
 
     def __call__(self, Xi: np.ndarray, Xj: np.ndarray) -> np.ndarray:
-        return np.exp(-(np.linalg.norm(Xj - Xi) / (2 * self.sigma ** 2)))
+        Xi = Xi.reshape((Xi.shape[0], -1))
+        Xj = Xj.reshape((Xj.shape[0], -1))
+        Xi_norms = (np.linalg.norm(Xi, axis=1) ** 2)[:, np.newaxis]
+        Xj_norms = (np.linalg.norm(Xj, axis=1) ** 2)[:, np.newaxis]
+        return Xi_norms - 2 * Xi.dot(Xj.T) + Xj_norms.T

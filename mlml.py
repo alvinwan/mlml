@@ -14,10 +14,10 @@ Usage:
 
 Options:
     --algo=<algo>       Shuffling algorithm to use [default: external_shuffle]
-    --buffer=<num>      Size of memory in megabytes (MB) [default: 10]
+    --buffer=<num>      Size of memory in megabytes (MB) [default: 30]
     --d=<d>             Number of features
     --damp=<damp>       Amount to multiply learning rate by per epoch [default: 0.99]
-    --dtype=<dtype>     The numeric type of each sample [default: float64]
+    --dtype=<dtype>     The numeric type of each sample [default: float16]
     --epochs=<epochs>   Number of passes over the training data [default: 3]
     --eta0=<eta0>       The initial learning rate [default: 1e-6]
     --iters=<iters>     The number of iterations, used for gd and sgd [default: 5000]
@@ -35,6 +35,8 @@ Options:
     --step=<step>       Number of iterations between each alpha decay [default: 10000]
     --train=<train>     Path to training data binary [default: data/train]
     --test=<test>       Path to test data [default: data/test]
+    --trn-dtype=<dtype> The numeric type of each training sample [default: uint8]
+    --tst-dtype=<dtype> The numeric type of each test sample [default: uint8]
     --simulated         Mark memory constraints as simulated. Allows full accuracy tests.
     --subset=<num>      Specify subset of data to pick. Ignored if <= 0. [default: 0]
 """
@@ -67,7 +69,7 @@ def generate(arguments):
     """Generate a Kernel matrix on disk."""
     train = read_dataset(
         data_hook=arguments['--data-hook'],
-        dtype=arguments['--dtype'],
+        dtype=arguments['--trn-dtype'],
         num_classes=arguments['--k'],
         one_hot=arguments['--one-hot'],
         path=arguments['--train'],
@@ -78,6 +80,7 @@ def generate(arguments):
         rbf = RBF(1)
         RidgeRegressionKernel(
                 function=rbf,
+                dtype=arguments['--dtype'],
                 num_samples=arguments['--num-per-block'],
                 data=train,
                 dir='data',
@@ -92,7 +95,7 @@ def train(arguments):
     """Train the specified algorithm."""
     test = read_dataset(
         data_hook=arguments['--data-hook'],
-        dtype=arguments['--dtype'],
+        dtype=arguments['--tst-dtype'],
         num_classes=arguments['--k'],
         one_hot=arguments['--one-hot'],
         path=arguments['--test'],
@@ -149,8 +152,10 @@ def preprocess_arguments(arguments) -> dict:
         arguments['--d'] = 55
     if arguments['cifar-10']:
         arguments['--dtype'] = 'uint8'
-        arguments['--train'] = 'data/cifar-10-%s-50000-train' % arguments['--dtype']
-        arguments['--test'] = 'data/cifar-10-%s-10000-test' % arguments['--dtype']
+        arguments['--trn-dtype'] = 'uint8'
+        arguments['--tst-dtype'] = 'uint8'
+        arguments['--train'] = 'data/cifar-10-uint8-50000-train'
+        arguments['--test'] = 'data/cifar-10-uint8-10000-test'
         arguments['--n'] = 50000
         arguments['--nt'] = 10000
         arguments['--k'] = 10
@@ -182,7 +187,8 @@ def preprocess_arguments(arguments) -> dict:
         if arguments['--subset'] > 0:
             arguments['--n'] = arguments['--nt'] = arguments['--subset']
         arguments['--d'] = arguments['--n']
-        arguments['--dtype'] = 'float64'  # todo: allow user override
+        arguments['--trn-dtype'] = arguments['--dtype']  # todo: allow user override
+        arguments['--tst-dtype'] = arguments['--dtype']
         arguments['--reg'] = 0
 
     bytes_total = float(arguments['--buffer']) * (10 ** 6)

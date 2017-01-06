@@ -128,18 +128,25 @@ class MemKernel:
         """Generate kernel from matrix X and save to disk."""
         assert self.data is not None, 'Data required to generate kernel matrix.'
         print(' * [MemKernel] Generating kernel matrix', self.memId)
-        s, rows_written = min(self.num_samples, self.n), 0
+        s, rows_written, cols_written = min(self.num_samples, self.n), 0, 0
         writer = BlockWriter(self.dtype, self.n, s, self.kernel_path)
-        for o in range(ceil(self.n / s)):
-            partial = np.zeros((s, self.n + 1))
-            for i, row in enumerate(self.data.X[o * s: (o + 1) * s]):
-                for j, col in enumerate(self.data.X):
-                    partial[i][j] = self.function(row, col)
-                partial[i][self.n] = self.data.labels[i]
-                rows_written += 1
+        for i in range(ceil(self.n / s)):
+            partial = None
+            Xi = self.data.X[i * s: (i + 1) * s]
+            rows_written += Xi.shape[0]
+            yi = self.data.labels[i * s: (i + 1) * s]
+            yi.shape = (yi.shape[0], 1)
+            for j in range(ceil(self.n / s)):
+                Xj = self.data.X[j * s: (j + 1) * s]
+                K_ij = self.function(Xi, Xj)
+                partial = K_ij if partial is None else \
+                    np.concatenate((partial, K_ij), axis=1)
+            partial = np.concatenate((partial, yi), axis=1)
+            cols_written = partial.shape[1]
+            print(' * [MemKernel] Generated partial', i)
             writer.write(partial)
-            print(' * [MemKernel] Wrote partial', o)
-        print(' * [MemKernel] Finished', (rows_written, self.n + 1),
+            print(' * [MemKernel] Wrote partial', i)
+        print(' * [MemKernel] Finished', (rows_written, cols_written),
               'Kernel', self.memId)
         return self
 
@@ -148,11 +155,7 @@ class MemKernel:
         """Generate an RBF kernel more efficiently, if simulated."""
         if simulated:
             mmap = np.memmap(self.kernel_path, self.dtype, mode='w+', shape=(self.n, self.n))
-
-            X = self.data.X.reshape(self.data.X.shape[0], -1)
-            X_norms = (np.linalg.norm(X, axis=1) ** 2)[:, np.newaxis]
-            K = X_norms.T - 2 * X.dot(X.T) + X_norms
-            mmap[:] = np.exp(-K)
+            mmap[:] = self.function(self.data.X, self.data.X)
             del mmap
 
             print(' * [MemKernel] Finished Kernel', self.memId)
@@ -171,7 +174,7 @@ class RidgeRegressionKernel(MemKernel):
             num_samples: int,
             data: Data,
             dir: str = './',
-            dtype: str = 'float64',
+            dtype: str = 'float16',
             mem_id: str=time.time(),
             reg: float = 0.1):
         super(RidgeRegressionKernel, self).__init__(
