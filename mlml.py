@@ -35,8 +35,6 @@ Options:
     --step=<step>       Number of iterations between each alpha decay [default: 10000]
     --train=<train>     Path to training data binary [default: data/train]
     --test=<test>       Path to test data [default: data/test]
-    --trn-dtype=<dtype> The numeric type of each training sample [default: uint8]
-    --tst-dtype=<dtype> The numeric type of each test sample [default: uint8]
     --simulated         Mark memory constraints as simulated. Allows full accuracy tests.
     --subset=<num>      Specify subset of data to pick. Ignored if <= 0. [default: 0]
 """
@@ -69,7 +67,7 @@ def generate(arguments):
     """Generate a Kernel matrix on disk."""
     train = read_dataset(
         data_hook=arguments['--data-hook'],
-        dtype=arguments['--trn-dtype'],
+        dtype=arguments['--dtype'],
         num_classes=arguments['--k'],
         one_hot=arguments['--one-hot'],
         path=arguments['--train'],
@@ -95,7 +93,7 @@ def train(arguments):
     """Train the specified algorithm."""
     test = read_dataset(
         data_hook=arguments['--data-hook'],
-        dtype=arguments['--tst-dtype'],
+        dtype=arguments['--dtype'],
         num_classes=arguments['--k'],
         one_hot=arguments['--one-hot'],
         path=arguments['--test'],
@@ -152,10 +150,8 @@ def preprocess_arguments(arguments) -> dict:
         arguments['--d'] = 55
     if arguments['cifar-10']:
         arguments['--dtype'] = 'uint8'
-        arguments['--trn-dtype'] = 'uint8'
-        arguments['--tst-dtype'] = 'uint8'
-        arguments['--train'] = 'data/cifar-10-uint8-50000-train'
-        arguments['--test'] = 'data/cifar-10-uint8-10000-test'
+        arguments['--train'] = 'data/cifar-10-%s-50000-train' % arguments['--dtype']
+        arguments['--test'] = 'data/cifar-10-%s-10000-test' % arguments['--dtype']
         arguments['--n'] = 50000
         arguments['--nt'] = 10000
         arguments['--k'] = 10
@@ -187,8 +183,7 @@ def preprocess_arguments(arguments) -> dict:
         if arguments['--subset'] > 0:
             arguments['--n'] = arguments['--nt'] = arguments['--subset']
         arguments['--d'] = arguments['--n']
-        arguments['--trn-dtype'] = arguments['--dtype']  # todo: allow user override
-        arguments['--tst-dtype'] = arguments['--dtype']
+        arguments['--dtype'] = 'float64'  # todo: allow user override
         arguments['--reg'] = 0
 
     bytes_total = float(arguments['--buffer']) * (10 ** 6)
