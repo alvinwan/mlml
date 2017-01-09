@@ -37,6 +37,7 @@ Options:
     --test=<test>       Path to test data [default: data/test]
     --trn-dtype=<dtype> The numeric type of each training sample [default: uint8]
     --tst-dtype=<dtype> The numeric type of each test sample [default: uint8]
+    --shuffle-on-disk   Flag for ssgd to shuffle on disk.
     --simulated         Mark memory constraints as simulated. Allows full accuracy tests.
     --subset=<num>      Specify subset of data to pick. Ignored if <= 0. [default: 0]
 """
@@ -134,7 +135,8 @@ def preprocess_arguments(arguments) -> dict:
     """
 
     if arguments['mnist']:
-        arguments['--dtype'] = 'uint8'
+        arguments['--trn-dtype'] = 'uint8'
+        arguments['--tst-dtype'] = 'uint8'
         arguments['--train'] = 'data/mnist-%s-60000-train' % arguments['--dtype']
         arguments['--test'] = 'data/mnist-%s-10000-test' % arguments['--dtype']
         arguments['--n'] = 60000
@@ -151,7 +153,6 @@ def preprocess_arguments(arguments) -> dict:
         arguments['--k'] = 1
         arguments['--d'] = 55
     if arguments['cifar-10']:
-        arguments['--dtype'] = 'uint8'
         arguments['--trn-dtype'] = 'uint8'
         arguments['--tst-dtype'] = 'uint8'
         arguments['--train'] = 'data/cifar-10-uint8-50000-train'
@@ -161,6 +162,7 @@ def preprocess_arguments(arguments) -> dict:
         arguments['--k'] = 10
         arguments['--d'] = 3072
         arguments['--one-hot'] = 'true'
+        arguments['--data-hook'] = lambda X, labels: (X / 255.0, labels)
 
     arguments['--damp'] = float(arguments['--damp'])
     arguments['--data-hook'] = arguments.get('--data-hook', lambda *args: args)
@@ -176,7 +178,7 @@ def preprocess_arguments(arguments) -> dict:
     arguments['--one-hot'] = arguments['--one-hot'].lower() == 'true'
     arguments['--reg'] = float(arguments['--reg'])
     arguments['--step'] = int(arguments['--step'])
-    arguments['--subset'] = int(arguments['--subset'])
+    arguments['--subset'] = int(arguments['--subset']) or arguments['--n']
 
     if arguments['--memId']:
         arguments['--data-hook'] = lambda *args: args

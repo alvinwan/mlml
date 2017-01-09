@@ -50,6 +50,7 @@ class SSGD(Algorithm):
             num_features=arguments['--d'],
             num_per_block=arguments['--num-per-block'],
             one_hot=arguments['--one-hot'],
+            shuffle_on_disk=arguments['--shuffle-on-disk'],
             simulated=arguments['--simulated'],
             step=arguments['--step'],
             subset=arguments['--subset'],
@@ -74,6 +75,7 @@ class SSGD(Algorithm):
             num_features: int,
             num_per_block: int,
             one_hot: bool,
+            shuffle_on_disk: bool,
             simulated: bool,
             step: int,
             subset: int,
@@ -108,6 +110,7 @@ class SSGD(Algorithm):
             num_per_block: Number of training samples to load into each block
             one_hot: Whether or not to use one hot encodings
             limited by the size of the buffer and size of each sample
+            shuffle_on_disk: Whether or not to shuffle on disk
             step: Number of iterations between each alpha decay
             train_path: Path to the training file (binary)
             X_test: Test input data
@@ -127,7 +130,8 @@ class SSGD(Algorithm):
         w_delta = iteration = 0
         for p in range(epochs):
             shuffled_path = shuffle_train(
-                algorithm, dtype, n, num_per_block, num_features, train_path)
+                algorithm, dtype, n, num_per_block, num_features, train_path) \
+                if shuffle_on_disk else train_path
             blocks = BlockBuffer(
                 dtype, n, num_features + 1, num_per_block, shuffled_path)
             for X, labels in map(block_x_labels, blocks):

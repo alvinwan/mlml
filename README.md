@@ -77,19 +77,17 @@ our kernel matrix or a function of our kernel matrix.
 
     python mlml.py ssgd (mnist|spam|cifar-10) --memId=<memId> [options] 
 
-For example, the following runs kernelized sgd on a subset of 35000
-samples from MNIST, using the radial basis function (RBF). Note that
+For example, the following runs kernelized sgd on all samples from
+cifar-10, using the radial basis function (RBF). Note that
 the first command will output the `<memId>` needed for the second
 command.
 
-    python mlml.py generate mnist --subset=35000 --kernel=RBF
-    python mlml.py ssgd mnist --memId=<memId> --subset=35000
+    python mlml.py generate cifar-10 --kernel=RBF
+    python mlml.py ssgd cifar-10 --memId=<memId>
 
-To use a more computationally efficient but memory-consuming algorithm,
-use the `--simulated` flag. For example, the following runs the
-alternative generation scheme for `CIFAR-10`.
+To run on a subset of your data, use the `--subset` flag.
 
-    python mlml.py generate cifar-10 --subset=30000 --kernel=RBF --simulated
+    python mlml.py generate cifar=10 --kernel=RBF --subset=35000
 
 ## Command-Line Utility
 

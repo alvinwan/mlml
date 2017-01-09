@@ -127,7 +127,8 @@ class MemKernel:
     def generate(self):
         """Generate kernel from matrix X and save to disk."""
         assert self.data is not None, 'Data required to generate kernel matrix.'
-        print(' * [MemKernel] Generating kernel matrix', self.memId)
+        print(' * [MemKernel] Generating kernel matrix', self.memId,
+              '(', self.dtype, ')')
         s, rows_written, cols_written = min(self.num_samples, self.n), 0, 0
         writer = BlockWriter(self.dtype, self.n, s, self.kernel_path)
         for i in range(ceil(self.n / s)):

@@ -1,5 +1,6 @@
 """"""
 
+from sklearn import preprocessing
 from typing import Tuple
 from typing import Callable
 
@@ -37,13 +38,11 @@ def read_dataset(
     data = np.memmap(path, dtype=dtype, mode='r', shape=(shape[0], shape[1] + 1))
     if subset > 0:
         data = data[:subset]
-    X, labels = data_hook(*block_x_labels(data, dtype))
+    X, labels = data_hook(*block_x_labels(data))
     return Data(labels, num_classes, one_hot, X)
 
 
-def block_x_labels(
-        block: np.ndarray,
-        dtype: str='float16') -> Tuple[np.ndarray, np.ndarray]:
+def block_x_labels(block: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """Converts a block of data into X and Y.
 
     Args:
@@ -54,17 +53,16 @@ def block_x_labels(
         X: the data inputs
         labels: the data outputs
     """
-    X = block[:, :-1].astype(dtype, copy=False)
+    X = block[:, :-1].astype('float64', copy=False)
     labels = block[:, -1].astype(int, copy=False)
     return X, labels
 
 
 def to_one_hot(num_classes: int, y: np.ndarray):
     """Convert vector into one hot form."""
-    one_hot = np.eye(num_classes)[y]
-    if len(one_hot.shape) > 2:
-        one_hot.shape = (one_hot.shape[0], one_hot.shape[-1])
-    return one_hot
+    lb = preprocessing.LabelBinarizer()
+    lb.fit(list(range(num_classes)))
+    return lb.transform(y)
 
 
 def de_one_hot(X: np.ndarray):

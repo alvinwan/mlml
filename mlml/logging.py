@@ -59,7 +59,7 @@ class StandardLogger(Logger):
             labels_train: np.ndarray,
             X_test: np.ndarray,
             labels_test: np.ndarray):
-        if log_frequency and iteration % log_frequency == 0:
+        if iteration % log_frequency == 0:
             train_accuracy = model.accuracy(X_train, labels_train)
             test_accuracy = model.accuracy(X_test, labels_test)
             print('Train:', train_accuracy, 'Test:', test_accuracy,
