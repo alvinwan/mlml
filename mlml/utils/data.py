@@ -47,7 +47,6 @@ def block_x_labels(block: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
     Args:
         block: The block of data to extract X and Y from
-        dtype: Datatype of the provided block
 
     Returns:
         X: the data inputs

@@ -70,7 +70,7 @@ def generate(arguments):
     """Generate a Kernel matrix on disk."""
     train = read_dataset(
         data_hook=arguments['--data-hook'],
-        dtype=arguments['--trn-dtype'],
+        dtype=arguments['--dtype'],
         num_classes=arguments['--k'],
         one_hot=arguments['--one-hot'],
         path=arguments['--train'],
@@ -96,7 +96,7 @@ def train(arguments):
     """Train the specified algorithm."""
     test = read_dataset(
         data_hook=arguments['--data-hook'],
-        dtype=arguments['--tst-dtype'],
+        dtype=arguments['--dtype'],
         num_classes=arguments['--k'],
         one_hot=arguments['--one-hot'],
         path=arguments['--test'],
@@ -189,8 +189,7 @@ def preprocess_arguments(arguments) -> dict:
         if arguments['--subset'] > 0:
             arguments['--n'] = arguments['--nt'] = arguments['--subset']
         arguments['--d'] = arguments['--n']
-        arguments['--trn-dtype'] = arguments['--dtype']  # todo: allow user override
-        arguments['--tst-dtype'] = arguments['--dtype']
+        arguments['--dtype'] = 'float64'  # todo: allow user override
         arguments['--reg'] = 0
 
     bytes_total = float(arguments['--buffer']) * (10 ** 6)

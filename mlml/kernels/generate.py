@@ -134,20 +134,15 @@ class MemKernel:
         for i in range(ceil(self.n / s)):
             partial = None
             Xi = self.data.X[i * s: (i + 1) * s]
-            rows_written += Xi.shape[0]
-            yi = self.data.labels[i * s: (i + 1) * s]
-            yi.shape = (yi.shape[0], 1)
             for j in range(ceil(self.n / s)):
                 Xj = self.data.X[j * s: (j + 1) * s]
                 K_ij = self.function(Xi, Xj)
                 partial = K_ij if partial is None else \
                     np.concatenate((partial, K_ij), axis=1)
-            partial = np.concatenate((partial, yi), axis=1)
-            cols_written = partial.shape[1]
             print(' * [MemKernel] Generated partial', i)
             writer.write(partial)
             print(' * [MemKernel] Wrote partial', i)
-        print(' * [MemKernel] Finished', (rows_written, cols_written),
+        print(' * [MemKernel] Finished', (rows_written, self.n + 1),
               'Kernel', self.memId)
         return self
 
@@ -175,7 +170,7 @@ class RidgeRegressionKernel(MemKernel):
             num_samples: int,
             data: Data,
             dir: str = './',
-            dtype: str = 'float16',
+            dtype: str = 'float64',
             mem_id: str=time.time(),
             reg: float = 0.1):
         super(RidgeRegressionKernel, self).__init__(
